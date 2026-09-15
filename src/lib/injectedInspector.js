@@ -53,20 +53,62 @@ export const INJECTED_INSPECTOR_CODE = `
     currentSelector = getSelector(currentSelected);
     syncBox(currentSelected);
 
-    const comp = window.getComputedStyle(currentSelected);
+    // Get bounding rect
+    const r = el.getBoundingClientRect();
+    const rect = { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) };
+
+    // Computed styles snapshot
+    const comp = window.getComputedStyle(el);
+    const styles = {
+      color: comp.color,
+      backgroundColor: comp.backgroundColor,
+      fontSize: comp.fontSize,
+      fontFamily: comp.fontFamily,
+      fontWeight: comp.fontWeight,
+      padding: comp.padding,
+      margin: comp.margin,
+      borderRadius: comp.borderRadius,
+      border: comp.border,
+      lineHeight: comp.lineHeight,
+      letterSpacing: comp.letterSpacing,
+      textAlign: comp.textAlign,
+      display: comp.display,
+      flexDirection: comp.flexDirection,
+      gap: comp.gap,
+      width: comp.width,
+      height: comp.height,
+      maxWidth: comp.maxWidth,
+      minHeight: comp.minHeight,
+      boxShadow: comp.boxShadow,
+    };
+
+    // React fiber _debugSource (file:line)
+    let source = null;
+    const fiberKey = Object.keys(el).find(k => k.startsWith('__reactFiber$'));
+    if (fiberKey) {
+      let fiber = el[fiberKey];
+      for (let i = 0; i < 15 && fiber; i++) {
+        if (fiber._debugSource && fiber._debugSource.fileName) {
+          source = { file: fiber._debugSource.fileName, line: fiber._debugSource.lineNumber };
+          break;
+        }
+        fiber = fiber.return;
+      }
+    }
+
+    // Semantic tags
+    const dataTl = el.getAttribute('data-tl') || null;
+    const dataSrc = el.getAttribute('data-src') || null;
 
     const payload = {
       selector: currentSelector,
       tagName: currentSelected.tagName.toLowerCase(),
       text: currentSelected.innerText?.slice(0, 80) || '',
-      styles: {
-        color: comp.color,
-        backgroundColor: comp.backgroundColor,
-        fontSize: comp.fontSize,
-        padding: comp.padding,
-        margin: comp.margin,
-        borderRadius: comp.borderRadius
-      }
+      dataTl,
+      dataSrc,
+      source,
+      rect,
+      styles
     };
 
     window.postMessage({ type: 'TWEAKLENS_SELECT', payload }, '*');

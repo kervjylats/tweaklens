@@ -6,19 +6,9 @@ The text box at the top is completely free-form. Whether your terminal gives you
 
 ---
 
-### 📄 Here is your new, simplified `CHEATSHEET.md` to replace the old one:
+# TweakLens Zero-Memory Cheatsheet
 
-```markdown
-# 🚀 TweakLens Zero-Memory Cheatsheet
-
-### 🧠 The Simple Rule
-1. Run the short command in your project terminal.
-2. The terminal gives you a link (`http://localhost:XXXXX`).
-3. Paste that link into TweakLens and click **Go**.
-
----
-
-## 1️⃣ Start TweakLens (Terminal 1)
+## 1. Start TweakLens (Terminal 1)
 
 ```powershell
 cd C:\DEV\tweaklens
@@ -27,87 +17,106 @@ npm run dev
 
 ---
 
-## 2️⃣ Start Your Project (Terminal 2)
+## 2. Start Your Project (Terminal 2)
 
-Go to your project folder and run the command for your framework. **No numbers needed!**
+Go to your project folder and run the command for your framework.
 
-### 💙 Flutter
+### Flutter
 ```powershell
 flutter run -d web-server
 ```
-👉 *Copy the `http://localhost:XXXXX` link it prints and paste into TweakLens.*  
-*(Note: If a project ever says "not configured for web", run `flutter create --platforms=web .` once).*
+Copy the `http://localhost:XXXXX` link and paste into TweakLens.
 
----
-
-### ⚡ Next.js / ⚛️ Vite / Web (React, Vue, Svelte)
+### Next.js / Vite / React
 ```powershell
 npm run dev
 ```
-👉 *Copy the local link it prints (e.g. `http://localhost:3000` or `5174`) and paste into TweakLens.*
+Copy the local link (e.g. `http://localhost:3000`) and paste into TweakLens.
 
----
-
-### 📱 Expo / React Native Web
+### Expo / React Native Web
 ```powershell
 npx expo start --web
 ```
-👉 *Copy the link it gives you and paste into TweakLens.*
+Copy the link and paste into TweakLens.
+
+### Python (Streamlit / Flask)
+```powershell
+streamlit run app.py   # Streamlit
+python app.py          # Flask
+```
+Copy the link and paste into TweakLens.
 
 ---
 
-### 🐍 Python (Streamlit / Flask)
-* **Streamlit:**
-  ```powershell
-  streamlit run app.py
-  ```
-* **Flask:**
-  ```powershell
-  python app.py
-  ```
-👉 *Copy the link it prints and paste into TweakLens.*
-
----
-
-## 3️⃣ Quick Reference: The 2 Modes in TweakLens
+## 3. The 2 Modes
 
 | Button | What it does | When to use it |
 | :--- | :--- | :--- |
-| **`▶️ Test & Click`** | Acts like a real phone/browser. Clicks, typing, and navigation work normally. | Testing your app, clicking tabs, typing in search bars. |
-| **`✏️ Edit UI Tools`** | Turns on the visual box drawer, element stamper, and reorder tools. | Dragging boxes over widgets, adding buttons, changing colors. |
+| **Test & Click** | Clicks/type pass into your app. | Testing navigation, clicking tabs. |
+| **Edit UI Tools** | Visual box drawer + element picker. | Annotating changes for AI. |
 
 ---
 
-## 🔍 Element Inspector (New)
+## 4. The Workflow (Edit Mode)
 
-The **Element Inspector** captures real CSS selectors from your app's DOM and carries them into your AI prompts — so the AI knows exactly which widget to modify.
+### Step-by-step
 
-| State | What happens |
+1. Switch to **Edit UI Tools**.
+2. Click **Pick Element** — your cursor becomes a crosshair.
+3. Click any element in your app (button, text, card, etc).
+4. TweakLens **auto-draws a box** over it and captures:
+   - Its selector (e.g. `button.subscribe`)
+   - Its component name (e.g. `ItemCards`)
+   - Its source file (e.g. `src/components/fan-pwa/ItemCards.tsx:97`)
+   - Its current styles (color, font, spacing, etc.)
+5. In the right sidebar, fill in what you want to change:
+   - **Action Type** — Restyle, Move, Insert, or Remove
+   - **Text** — what it should say
+   - **Color** — what color it should be
+   - **Instruction** — any extra detail for the AI
+6. Repeat for as many elements as needed.
+7. Click **Copy Batch Plan for AI**.
+8. Paste into your AI chat (Claude, Cursor, OpenCode, etc).
+
+### Manual alternative (no Pick)
+
+You can also **drag a box** over any element. The box won't auto-capture source info, but you can type the selector or component name by hand in the sidebar.
+
+---
+
+## 5. Exporting to AI
+
+### The prompt includes (automatically)
+
+- Element selectors (`button.subscribe`, `.hero-banner`)
+- Component names (`data-tl="ItemCards"`)
+- Source file + line (`src/components/.../ItemCards.tsx:97`)
+- Current computed styles (before state)
+- Your instructions (action, text, color, notes)
+
+### Project rules (toggle ON by default)
+
+The exported prompt includes a **PROJECT RULES** block that tells the AI:
+- Follow the repo's AGENTS.md conventions
+- Use the existing design system (branding tokens, buttonClass, cardRadius)
+- Run typecheck + lint + check-docs after changes
+- Make it responsive at all breakpoints
+
+You can uncheck "Include project rules" if you don't need it.
+
+### Where to paste it
+
+| Tool | How |
 | :--- | :--- |
-| **Inspector ON** (default in Edit mode) | Click any element in the app → a `selector` badge appears on the box → selector is included in the exported prompt. |
-| **Inspector OFF** | Interactive pass-through. Clicks navigate your app normally. |
-
-### Mental Model
-
-```
-1. Turn ON inspector
-2. Click the real element in the app (e.g. the "Subscribe" button)
-   → TweakLens captures: button.subscribe, .hero-banner, #cta-btn
-3. Drag a box around it
-   → The annotation inherits the selector automatically
-4. Export the prompt
-   → AI sees: "Element Selector: button.subscribe"
-   → AI finds that exact widget in your code
-```
-
-### Manual override
-The **Element Selector** field in the sidebar is editable — you can type or correct the selector by hand if the auto-capture picks the wrong element.
+| **OpenCode (CLI)** | Paste directly in chat. The AI already has your repo. |
+| **Claude / ChatGPT** | Paste the plan + attach the relevant file(s). |
+| **Cursor** | Paste in chat. Cursor reads your project files. |
+| **Local AI** | Paste only the 1-2 files being edited + the plan. |
 
 ---
 
-## 4️⃣ Exporting to AI (Claude / Cursor / Hermes / CLI)
-1. In **Edit Mode**, drag boxes over widgets or stamp new components.
-2. In the right sidebar, pick what to change (Color, Text, Reorder, Insert).
-3. Click **`📋 Copy Batch Plan for AI`**.
-4. Paste it straight into your AI prompt along with the file you want to edit!
-```
+## 6. Tips
+
+- **Design at multiple viewports** — switch between Mobile / Tablet / Desktop to catch layout issues.
+- **Source info is automatic** — if the app is React/Next.js, TweakLens reads the component source. If not, you'll get selectors only (still useful).
+- **Rules preamble protects you** — the AI won't hardcode colors or break your design system.

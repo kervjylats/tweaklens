@@ -1,5 +1,3 @@
-**Yes, 100%! I completely understand where you're coming from.**
-
 Think of it like hiring a contractor to remodel your kitchen: 
 * If you only give them a sketch of your dream kitchen, but **don't let them see your actual house**, they don't know where the plumbing is or which walls can be knocked down.
 * They need **both**: 
@@ -10,47 +8,85 @@ Here is the exact, stress-free way to handle this so the AI does not get confuse
 
 ---
 
-### 🎯 The "Golden Formula" for Your Prompt
+## The "Golden Formula" for Your Prompt
 
 Whenever you start a new chat session, you only need to feed the AI two things:
 
 ```
-  ┌─────────────────────────────────────────────────────────────┐
-  │ 1. CURRENT CODE  ➔ (The relevant file or packed repo)       │
-  │                     +                                       │
-  │ 2. NEW DESIGN    ➔ (The TweakLens Batch Plan)               │
-  └─────────────────────────────────────────────────────────────┘
+  +-----------------------------------------------------+
+  | 1. CURRENT CODE    (The relevant file or packed repo) |
+  |                     +                                 |
+  | 2. NEW DESIGN      (The TweakLens Batch Plan)        |
+  +-----------------------------------------------------+
 ```
+
+That's it. The plan tells the AI **what** to change and **where** to find it.
 
 ---
 
-### 📂 How Much of the Project Should You Share?
+## How Source Info Helps
+
+When TweakLens captures an element, it includes source information in the plan:
+
+```
+#### TASK 1: [Subscribe Button]
+- **Source**: src/components/ItemCards.tsx:97
+- **Element Selector**: button.subscribe
+- **Component**: ItemCards
+- **Current Styles** (before): color=#fff, bg=#6d6dfa, font=14px Inter
+- **Action**: RESTYLE & MODIFY
+- **Color / Background**: #10b981
+```
+
+**Why this matters:**
+- **Source line** — the AI goes straight to the exact line. No guessing.
+- **Selector** — fallback if source isn't available. The AI searches your code.
+- **Current styles** — the AI sees what's there now, not just what you want.
+- **Component name** — the AI knows which React component owns the element.
+
+If source info isn't available (non-React apps), the selector + text + your notes still work — just less precisely.
+
+---
+
+## How Much of the Project Should You Share?
 
 You do **not** need to upload your entire 500MB project folder (with `node_modules`, `build/`, `.dart_tool/`). That actually hurts the AI because it gets overwhelmed by junk files.
 
 Here is what to share depending on which tool you are using:
 
-#### 1. If using Cursor, Aider, or OpenCode (CLI) 🚀
-* **Effort:** ⭐ *Zero effort.*
+### If using Cursor, Aider, or OpenCode (CLI)
+* **Effort:** Zero effort.
 * **What you do:** These tools **already live inside your project folder** and can read your git repo directly!
 * **How to prompt:** Just open the chat in your CLI/editor and paste the TweakLens plan:
   > *"Here is a batch UI refactor plan. Please update the relevant widgets in this project to match."*
 
----
-
-#### 2. If using Claude / ChatGPT Web Chat 🌐
+### If using Claude / ChatGPT Web Chat
 * **Option A (Best for 1 screen):** Just copy/paste the specific file that renders that screen (e.g. `lib/home_screen.dart` or `src/App.jsx`).
-* **Option B (Best for the whole app):** Use **Repomix** (just like the packed file you shared at the start of this conversation!). One clean packed `.md` file containing only your code files, **plus** your TweakLens plan.
+* **Option B (Best for the whole app):** Use **Repomix** to pack your code into one clean `.md` file, then paste your TweakLens plan alongside it.
+
+### If using Local AI (Ollama / Unsloth)
+* **Crucial Tip:** Local models have smaller context limits. 
+* **Do NOT feed them the whole repo.** Give them **just the 1 or 2 files** being edited + the TweakLens plan.
 
 ---
 
-#### 3. If using Local AI (Nous Hermes / Ollama / Unsloth) 💻
-* **Crucial Tip:** Local models (8B to 14B parameters) have smaller context limits than Claude. 
-* **Do NOT feed them the whole repo.** Give them **just the 1 or 2 files** being edited (e.g. `home_screen.dart`) + the TweakLens plan. They will execute it with near-zero mistakes.
+## The Rules Preamble
+
+When you export from TweakLens with "Include project rules" checked, the AI gets a preamble like:
+
+> *Follow the repo's AGENTS.md. Use the existing branding design system (buttonClass, cardRadius, theme tokens) — never hardcode raw colors. Follow Tailwind + responsive conventions (sm:/md:/lg:). Run typecheck + lint + check-docs after changes.*
+
+This is what keeps the AI from:
+- Hardcoding colors instead of using your design system's tokens
+- Breaking responsive layouts
+- Introducing type errors or lint violations
+- Touching files it shouldn't
+
+**Always leave it checked unless you know what you're doing.**
 
 ---
 
-### 💡 Do You Need to Explain "What TweakLens Is" to the AI?
+## Do You Need to Explain "What TweakLens Is" to the AI?
 
 **No!** You don't need to waste time explaining what TweakLens is. The AI only cares about the **instructions**.
 
@@ -64,18 +100,3 @@ You can literally just start a chat like this:
 > *Update my code so the visual layout matches these tasks."*
 
 The AI will immediately connect the dots: it finds the old widgets in your code and rewrites them into your new design!
-
----
-
-### 🔍 How Selectors Help the AI
-
-When TweakLens captures a real DOM selector (e.g. `button.subscribe`, `.hero-banner`, `#cta-btn`), it includes it in the prompt:
-
-```
-#### TASK 1: [Subscribe Button]
-- **Element Selector**: `button.subscribe`
-- **Action**: 🎨 RESTYLE & MODIFY
-- **Color / Background**: `#10b981`
-```
-
-**Why this matters:** instead of guessing which widget to modify, the AI can now search your code for that exact selector and target its changes precisely. This works best when your selectors are clean (IDs, class names, or tag+class combos). If the auto-captured selector is wrong, you can correct it manually in the sidebar's Element Selector field before copying the prompt.

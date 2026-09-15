@@ -21,12 +21,13 @@ export default function InspectorView() {
 
   // Modes: 'interact' (Testing), 'edit' (Visual UI tool)
   const [mode, setMode] = useState('interact');
-  const [activeTool, setActiveTool] = useState('box'); // 'box' or 'button' | 'text' | 'card' | 'input'
-  const [framework, setFramework] = useState('flutter'); // 'flutter' | 'react' | 'generic'
+  const [activeTool, setActiveTool] = useState('box');
+  const [framework, setFramework] = useState('flutter');
 
-  // Element inspector toggle
+  // Element inspector
   const [inspectorEnabled, setInspectorEnabled] = useState(true);
-  const [inspectedEl, setInspectedEl] = useState(null); // last clicked element data from webview
+  const [picking, setPicking] = useState(false);
+  const [inspectedEl, setInspectedEl] = useState(null);
 
   // Annotations & Stamped Widgets
   const [annotations, setAnnotations] = useState([]);
@@ -36,60 +37,95 @@ export default function InspectorView() {
   const [currentRect, setCurrentRect] = useState(null);
   const [copied, setCopied] = useState(false);
 
+  // Rules preamble toggle
+  const [includeRules, setIncludeRules] = useState(true);
+
   const webviewRef = useRef(null);
   const overlayRef = useRef(null);
 
   // ----------------------------------------------------
-  // INJECT INSPECTOR CODE + TOGGLE ON WEBVIEW LOAD
+  // INJECT INSPECTOR CODE + LISTEN FOR IPC FROM GUEST
   // ----------------------------------------------------
-  useEffect(() => {
+  const injectInspector = () => {
     const wv = webviewRef.current;
-    if (!wv) return;
-
-    const inject = () => {
+    if (!wv || wv.isLoading()) return;
+    try {
       wv.executeJavaScript(INJECTED_INSPECTOR_CODE);
       wv.executeJavaScript(`window.__TWEAKLENS_SET_ENABLED__(${inspectorEnabled})`);
-    };
+    } catch (_) { /* webview not ready */ }
+  };
 
-    const onDidFinishLoad = () => inject();
-    wv.addEventListener('did-finish-load', onDidFinishLoad);
-
-    // Inject immediately if already loaded
-    if (!wv.isLoading()) inject();
-
-    return () => wv.removeEventListener('did-finish-load', onDidFinishLoad);
-  }, [activeUrl, viewport]); // re-inject on URL or viewport change
-
-  // Toggle inspector when flag changes
   useEffect(() => {
     const wv = webviewRef.current;
     if (!wv) return;
-    wv.executeJavaScript(`window.__TWEAKLENS_SET_ENABLED__(${inspectorEnabled})`);
+
+    wv.addEventListener('did-finish-load', injectInspector);
+    injectInspector(); // inject immediately if already loaded
+
+    return () => wv.removeEventListener('did-finish-load', injectInspector);
+  }, [activeUrl, viewport]);
+
+  // Toggle inspector flag on the guest
+  useEffect(() => {
+    const wv = webviewRef.current;
+    if (!wv) return;
+    try {
+      wv.executeJavaScript(`window.__TWEAKLENS_SET_ENABLED__(${inspectorEnabled})`);
+    } catch (_) {}
   }, [inspectorEnabled]);
 
-  // ----------------------------------------------------
-  // LISTEN FOR ELEMENT SELECT MESSAGES FROM WEBVIEW
-  // ----------------------------------------------------
+  // Listen for element selections via IPC bridge (NOT window.postMessage)
   useEffect(() => {
+    const wv = webviewRef.current;
+    if (!wv) return;
+
     const handler = (e) => {
-      if (e.data?.type === 'TWEAKLENS_SELECT') {
-        setInspectedEl(e.data.payload);
+      if (e.channel === 'tweaklens-select' && e.args?.[0]) {
+        const payload = e.args[0];
+        setInspectedEl(payload);
+
+        // If we're in picking mode, auto-create an annotation box at the element's rect
+        if (picking && payload.rect && payload.rect.width > 5 && payload.rect.height > 5) {
+          const newBox = {
+            id: Date.now(),
+            x: payload.rect.x,
+            y: payload.rect.y,
+            width: Math.max(payload.rect.width, 40),
+            height: Math.max(payload.rect.height, 20),
+            label: payload.text?.slice(0, 30) || payload.tagName || 'Element',
+            type: 'styling',
+            subType: 'widget',
+            text: payload.text?.slice(0, 80) || '',
+            color: payload.styles?.color || '#10b981',
+            reorderTarget: '',
+            reorderDirection: 'below',
+            notes: '',
+            selector: payload.selector || '',
+            dataTl: payload.dataTl || null,
+            dataSrc: payload.dataSrc || null,
+            source: payload.source || null,
+            capturedStyles: payload.styles || {}
+          };
+          setAnnotations((prev) => [...prev, newBox]);
+          setSelectedBoxId(newBox.id);
+          setPicking(false);
+        }
       }
     };
-    window.addEventListener('message', handler);
-    return () => window.removeEventListener('message', handler);
-  }, []);
+
+    wv.addEventListener('ipc-message', handler);
+    return () => wv.removeEventListener('ipc-message', handler);
+  }, [picking]); // re-bind when picking changes so the auto-create fires
 
   // ----------------------------------------------------
   // DRAWING & STAMPING LOGIC
   // ----------------------------------------------------
   const handleOverlayMouseDown = (e) => {
-    if (mode !== 'edit') return;
+    if (mode !== 'edit' || picking) return;
     const rect = overlayRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    // IF STAMP TOOL IS ACTIVE -> Drop new widget on click!
     if (activeTool !== 'box') {
       const preset = STAMP_PRESETS[activeTool];
       const newWidget = {
@@ -99,22 +135,25 @@ export default function InspectorView() {
         width: preset.width,
         height: preset.height,
         label: `New ${activeTool.toUpperCase()}`,
-        type: 'insert', // 'insert' | 'styling' | 'reorder' | 'remove'
+        type: 'insert',
         subType: activeTool,
         text: preset.defaultText,
         color: preset.color,
         reorderTarget: '',
         reorderDirection: 'below',
         notes: '',
-        selector: '' // populated when inspector captures a real element
+        selector: '',
+        dataTl: null,
+        dataSrc: null,
+        source: null,
+        capturedStyles: {}
       };
       setAnnotations((prev) => [...prev, newWidget]);
       setSelectedBoxId(newWidget.id);
-      setActiveTool('box'); // Return to normal box selection
+      setActiveTool('box');
       return;
     }
 
-    // OTHERWISE -> Start box drag
     setIsDrawing(true);
     setDrawStart({ x, y });
     setCurrentRect({ x, y, width: 0, height: 0 });
@@ -143,14 +182,18 @@ export default function InspectorView() {
         id: Date.now(),
         ...currentRect,
         label: `Widget #${annotations.length + 1}`,
-        type: 'styling', // default to restyle
+        type: 'styling',
         subType: 'widget',
         text: '',
         color: '#10b981',
         reorderTarget: '',
         reorderDirection: 'below',
         notes: '',
-        selector: inspectedEl?.selector || '' // auto-attach if inspector captured one
+        selector: inspectedEl?.selector || '',
+        dataTl: inspectedEl?.dataTl || null,
+        dataSrc: inspectedEl?.dataSrc || null,
+        source: inspectedEl?.source || null,
+        capturedStyles: inspectedEl?.styles || {}
       };
       setAnnotations((prev) => [...prev, newBox]);
       setSelectedBoxId(newBox.id);
@@ -178,7 +221,19 @@ export default function InspectorView() {
   const generateBatchPrompt = () => {
     if (annotations.length === 0) return 'No visual changes boxed yet.';
 
-    let prompt = `### 📋 Batch UI Refactor Plan (${annotations.length} Tasks)\n`;
+    let prompt = '';
+
+    // Rules preamble (toggleable)
+    if (includeRules) {
+      prompt += `## PROJECT RULES (MUST FOLLOW)\n`;
+      prompt += `- Follow the repo's AGENTS.md conventions exactly.\n`;
+      prompt += `- Use the existing branding design system (buttonClass, cardRadius, theme tokens) — never hardcode raw colors that bypass per-creator branding.\n`;
+      prompt += `- Follow existing Tailwind + responsive conventions (sm: / md: / lg:); make it work on mobile, tablet, and desktop.\n`;
+      prompt += `- After changes, run \`npm run typecheck\`, \`npm run lint\`, \`python scripts/check-docs.py\` — all must be 0 errors.\n`;
+      prompt += `- Touch only the targeted files; keep JSDoc purpose docstrings on every .ts/.tsx file.\n\n`;
+    }
+
+    prompt += `### Batch UI Refactor Plan (${annotations.length} Tasks)\n`;
     prompt += `Target URL: \`${activeUrl}\`\n`;
     prompt += `Target Framework: **${framework.toUpperCase()}**\n\n`;
     prompt += `Please review the whole task list and update the code step-by-step:\n\n`;
@@ -186,28 +241,42 @@ export default function InspectorView() {
     annotations.forEach((box, i) => {
       prompt += `#### TASK ${i + 1}: [${box.label.toUpperCase()}]\n`;
 
-      // Include real selector when available
+      // Source information (highest priority)
+      if (box.source?.file) {
+        prompt += `- **Source**: \`${box.source.file}:${box.source.line}\`\n`;
+      }
       if (box.selector) {
         prompt += `- **Element Selector**: \`${box.selector}\`\n`;
       }
+      if (box.dataTl) {
+        prompt += `- **Component**: \`${box.dataTl}\`\n`;
+      }
+      if (box.dataSrc) {
+        prompt += `- **Source Tag**: \`${box.dataSrc}\`\n`;
+      }
+
+      // Current computed styles (before state)
+      if (box.capturedStyles && Object.keys(box.capturedStyles).length > 0) {
+        const cs = box.capturedStyles;
+        prompt += `- **Current Styles** (before): color=\`${cs.color}\`, bg=\`${cs.backgroundColor}\`, font=\`${cs.fontSize} ${cs.fontFamily?.split(',')[0]}\`, weight=\`${cs.fontWeight}\`, padding=\`${cs.padding}\`, radius=\`${cs.borderRadius}\`\n`;
+      }
 
       if (box.type === 'insert') {
-        prompt += `- **Action**: ➕ INSERT NEW WIDGET\n`;
+        prompt += `- **Action**: INSERT NEW WIDGET\n`;
         prompt += `- **Component Type**: ${box.subType.toUpperCase()}\n`;
         if (box.text) prompt += `- **Initial Text**: "${box.text}"\n`;
         if (box.color) prompt += `- **Styling / Color**: \`${box.color}\`\n`;
         if (box.notes) prompt += `- **Placement & Notes**: ${box.notes}\n`;
       } else if (box.type === 'reorder') {
-        prompt += `- **Action**: 🔀 REORDER / MOVE\n`;
+        prompt += `- **Action**: REORDER / MOVE\n`;
         prompt += `- **Movement**: Move **${box.reorderDirection.toUpperCase()}** "${box.reorderTarget || 'the specified section'}"\n`;
         if (box.notes) prompt += `- **Details**: ${box.notes}\n`;
       } else if (box.type === 'remove') {
-        prompt += `- **Action**: ❌ REMOVE / HIDE\n`;
+        prompt += `- **Action**: REMOVE / HIDE\n`;
         prompt += `- **Instruction**: Delete or conditionally hide this widget\n`;
         if (box.notes) prompt += `- **Reason / Details**: ${box.notes}\n`;
       } else {
-        // Styling / text
-        prompt += `- **Action**: 🎨 RESTYLE & MODIFY\n`;
+        prompt += `- **Action**: RESTYLE & MODIFY\n`;
         if (box.text) prompt += `- **Change Text To**: "${box.text}"\n`;
         if (box.color) prompt += `- **Color / Background**: \`${box.color}\`\n`;
         if (box.notes) prompt += `- **Detailed Changes**: ${box.notes}\n`;
@@ -230,6 +299,15 @@ export default function InspectorView() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  // ----------------------------------------------------
+  // Overlay class calculation
+  // ----------------------------------------------------
+  const overlayClass = picking
+    ? 'annotation-overlay picking-overlay'
+    : mode === 'edit'
+      ? 'annotation-overlay active-overlay'
+      : 'annotation-overlay passive-overlay';
+
   return (
     <div className="lens-container">
       {/* Topbar */}
@@ -243,7 +321,7 @@ export default function InspectorView() {
         <div className="mode-toggle">
           <button
             className={`mode-btn ${mode === 'interact' ? 'active-test' : ''}`}
-            onClick={() => setMode('interact')}
+            onClick={() => { setMode('interact'); setPicking(false); }}
           >
             ▶️ Test & Click
           </button>
@@ -255,22 +333,23 @@ export default function InspectorView() {
           </button>
         </div>
 
-        {/* Element Inspector Toggle */}
-        <div className="mode-toggle" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>🔍 Inspector</span>
-          <button
-            className={`chip ${inspectorEnabled ? 'active' : ''}`}
-            onClick={() => setInspectorEnabled((prev) => !prev)}
-            title={inspectorEnabled ? 'Inspector ON — click elements to capture selectors' : 'Inspector OFF — interactive mode'}
-          >
-            {inspectorEnabled ? 'ON' : 'OFF'}
-          </button>
-          {inspectedEl && (
-            <span style={{ fontSize: '10px', color: 'var(--accent-primary)', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {inspectedEl.selector}
-            </span>
-          )}
-        </div>
+        {/* Inspector Controls */}
+        {mode === 'edit' && (
+          <div className="mode-toggle" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <button
+              className={`tool-chip ${picking ? 'selected' : ''}`}
+              onClick={() => setPicking((prev) => !prev)}
+              style={{ fontSize: '11px' }}
+            >
+              {picking ? '🔴 Picking...' : '🔍 Pick Element'}
+            </button>
+            {inspectedEl && (
+              <span style={{ fontSize: '10px', color: 'var(--accent-primary)', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {inspectedEl.source?.file ? `${inspectedEl.source.file.split('/').pop()}:${inspectedEl.source.line}` : inspectedEl.selector}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* URL Input */}
         <div className="url-bar-wrap">
@@ -282,7 +361,7 @@ export default function InspectorView() {
             onKeyDown={(e) => e.key === 'Enter' && setActiveUrl(inputUrl)}
           />
           <button className="btn primary" onClick={() => setActiveUrl(inputUrl)}>Go</button>
-          <button className="btn icon-btn" onClick={() => webviewRef.current?.reload()}>🔄</button>
+          <button className="btn icon-btn" onClick={() => { try { webviewRef.current?.reload(); } catch (_) {} }}>🔄</button>
         </div>
 
         {/* Viewport Switcher */}
@@ -299,13 +378,13 @@ export default function InspectorView() {
         </div>
       </header>
 
-      {/* Sub-toolbar (Only visible in Edit Mode) */}
+      {/* Sub-toolbar (Edit Mode only) */}
       {mode === 'edit' && (
         <div className="edit-subbar">
           <span className="subbar-label">TOOL:</span>
           <button
-            className={`tool-chip ${activeTool === 'box' ? 'selected' : ''}`}
-            onClick={() => setActiveTool('box')}
+            className={`tool-chip ${activeTool === 'box' && !picking ? 'selected' : ''}`}
+            onClick={() => { setActiveTool('box'); setPicking(false); }}
           >
             ✏️ Drag Box
           </button>
@@ -316,17 +395,19 @@ export default function InspectorView() {
             <button
               key={k}
               className={`tool-chip stamp ${activeTool === k ? 'selected' : ''}`}
-              onClick={() => setActiveTool(k)}
+              onClick={() => { setActiveTool(k); setPicking(false); }}
             >
               {v.label}
             </button>
           ))}
           <span className="hint-stamp">
-            {activeTool !== 'box'
-              ? `👉 Click anywhere on the phone to place a new ${activeTool}!`
-              : inspectorEnabled
-                ? '🔍 Click an element to capture its selector, then drag a box.'
-                : 'Drag a box over an existing element.'}
+            {picking
+              ? 'Click any element in the app to capture it...'
+              : activeTool !== 'box'
+                ? `Click anywhere on the phone to place a new ${activeTool}!`
+                : inspectedEl
+                  ? `Last captured: ${inspectedEl.selector || inspectedEl.tagName || 'element'} — drag a box over it.`
+                  : '🔍 Use Pick Element to auto-capture, or drag a box manually.'}
           </span>
         </div>
       )}
@@ -348,17 +429,17 @@ export default function InspectorView() {
               ref={webviewRef}
               src={activeUrl}
               className="guest-webview"
+              preload={window.tweaklens?.webviewPreload}
             />
 
             {/* Visual Canvas Overlay */}
             <div
               ref={overlayRef}
-              className={`annotation-overlay ${mode === 'edit' ? 'active-overlay' : 'passive-overlay'}`}
+              className={overlayClass}
               onMouseDown={handleOverlayMouseDown}
               onMouseMove={handleOverlayMouseMove}
               onMouseUp={handleOverlayMouseUp}
             >
-              {/* Dragging Box Preview */}
               {currentRect && (
                 <div
                   className="drawing-rect"
@@ -371,7 +452,6 @@ export default function InspectorView() {
                 />
               )}
 
-              {/* Rendered Badges & Boxes */}
               {annotations.map((box, i) => {
                 let badgeClass = 'box-modify';
                 if (box.type === 'insert') badgeClass = 'box-insert';
@@ -387,7 +467,7 @@ export default function InspectorView() {
                       top: box.y,
                       width: box.width,
                       height: box.height,
-                      pointerEvents: mode === 'edit' ? 'auto' : 'none'
+                      pointerEvents: mode === 'edit' && !picking ? 'auto' : 'none'
                     }}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -399,9 +479,9 @@ export default function InspectorView() {
                       {box.type === 'insert' ? '➕ ' : ''}
                       {box.label}
                     </span>
-                    {box.selector && (
-                      <span className="box-badge" style={{ left: 'auto', right: '4px', background: '#6d6dfa', fontSize: '9px' }}>
-                        {box.selector}
+                    {(box.source?.file || box.selector) && (
+                      <span className="box-badge" style={{ left: 'auto', right: '4px', background: '#6d6dfa', fontSize: '9px', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {box.source?.file ? box.source.file.split('/').pop() + ':' + box.source.line : box.selector}
                       </span>
                     )}
                   </div>
@@ -441,6 +521,18 @@ export default function InspectorView() {
                     </button>
                   </div>
 
+                  {/* Source info (read-only, when available) */}
+                  {selectedBox.source?.file && (
+                    <div style={{ fontSize: '11px', color: 'var(--accent-primary)', fontFamily: 'monospace', marginBottom: '8px', wordBreak: 'break-all' }}>
+                      📄 {selectedBox.source.file}:{selectedBox.source.line}
+                    </div>
+                  )}
+                  {selectedBox.dataTl && (
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                      🏷️ Component: {selectedBox.dataTl}
+                    </div>
+                  )}
+
                   <label>
                     <span>Widget Name / Label</span>
                     <input
@@ -450,17 +542,28 @@ export default function InspectorView() {
                     />
                   </label>
 
-                  {/* Element Selector — read-only, populated from inspector */}
                   <label>
                     <span>Element Selector</span>
                     <input
                       type="text"
                       value={selectedBox.selector || ''}
                       onChange={(e) => updateSelectedBox({ selector: e.target.value })}
-                      placeholder="e.g. .header, #cta-btn, button.primary"
+                      placeholder="e.g. button.primary, #cta-btn"
                       style={{ fontFamily: 'monospace', fontSize: '12px' }}
                     />
                   </label>
+
+                  {/* Current styles preview */}
+                  {selectedBox.capturedStyles && Object.keys(selectedBox.capturedStyles).length > 0 && (
+                    <details style={{ marginBottom: '8px' }}>
+                      <summary style={{ fontSize: '11px', color: 'var(--text-muted)', cursor: 'pointer' }}>Current Styles (before)</summary>
+                      <div style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.6' }}>
+                        {Object.entries(selectedBox.capturedStyles).map(([k, v]) => (
+                          <div key={k}>{k}: {v}</div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
 
                   <label>
                     <span>Action Type</span>
@@ -475,7 +578,6 @@ export default function InspectorView() {
                     </select>
                   </label>
 
-                  {/* Move & Reorder Controls */}
                   {selectedBox.type === 'reorder' && (
                     <div className="reorder-group">
                       <label>
@@ -495,7 +597,7 @@ export default function InspectorView() {
                         <span>Relative To</span>
                         <input
                           type="text"
-                          placeholder="e.g. Spanish Chip, or Streak Banner"
+                          placeholder="e.g. Subscribe Button"
                           value={selectedBox.reorderTarget}
                           onChange={(e) => updateSelectedBox({ reorderTarget: e.target.value })}
                         />
@@ -503,7 +605,6 @@ export default function InspectorView() {
                     </div>
                   )}
 
-                  {/* Text / Label Controls */}
                   {(selectedBox.type === 'styling' || selectedBox.type === 'insert') && (
                     <label>
                       <span>Text / Title</span>
@@ -516,14 +617,13 @@ export default function InspectorView() {
                     </label>
                   )}
 
-                  {/* Color / Styling Controls */}
                   {selectedBox.type !== 'remove' && (
                     <label>
                       <span>Color / Theme</span>
                       <input
                         type="text"
                         value={selectedBox.color}
-                        placeholder="e.g. #10b981 or Colors.teal"
+                        placeholder="e.g. #10b981 or branding.accentColor"
                         onChange={(e) => updateSelectedBox({ color: e.target.value })}
                       />
                     </label>
@@ -542,16 +642,16 @@ export default function InspectorView() {
               ) : (
                 <div className="sidebar-section">
                   <p className="hint">
-                    {inspectorEnabled
-                      ? '🔍 Inspector ON — click an element in the app to capture its selector, then drag a box to annotate it.'
-                      : 'Select a tool above (or drag a box) to edit or place elements.'}
+                    {picking
+                      ? '🔍 Click any element in the app to capture it and auto-create an annotation.'
+                      : 'Pick an element above, or drag a box over something to annotate it.'}
                   </p>
                 </div>
               )}
             </>
           )}
 
-          {/* Diffs & Batch Export */}
+          {/* Batch Export */}
           <div className="sidebar-section diffs-section" style={{ marginTop: 'auto' }}>
             <div className="diffs-header">
               <h3>Batch Tasks ({annotations.length})</h3>
@@ -560,30 +660,31 @@ export default function InspectorView() {
               )}
             </div>
 
-            {/* Target Framework Selector */}
             <div style={{ marginBottom: '10px' }}>
               <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Target Stack:</span>
               <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
-                <button
-                  className={`chip ${framework === 'flutter' ? 'active' : ''}`}
-                  onClick={() => setFramework('flutter')}
-                >
-                  Flutter
-                </button>
-                <button
-                  className={`chip ${framework === 'react' ? 'active' : ''}`}
-                  onClick={() => setFramework('react')}
-                >
-                  React / Next
-                </button>
-                <button
-                  className={`chip ${framework === 'generic' ? 'active' : ''}`}
-                  onClick={() => setFramework('generic')}
-                >
-                  Generic
-                </button>
+                {['flutter', 'react', 'generic'].map((f) => (
+                  <button
+                    key={f}
+                    className={`chip ${framework === f ? 'active' : ''}`}
+                    onClick={() => setFramework(f)}
+                  >
+                    {f === 'react' ? 'React / Next' : f.charAt(0).toUpperCase() + f.slice(1)}
+                  </button>
+                ))}
               </div>
             </div>
+
+            {/* Rules preamble toggle */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px', fontSize: '11px', color: 'var(--text-muted)', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={includeRules}
+                onChange={(e) => setIncludeRules(e.target.checked)}
+                style={{ width: '14px', height: '14px' }}
+              />
+              Include project rules in prompt
+            </label>
 
             <button
               className="btn primary full-width"
