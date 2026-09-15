@@ -1,0 +1,86 @@
+### ❓ First: Do we need to change TweakLens? Does it accept any port?
+
+**No changes needed! TweakLens already accepts ANY port number.** 
+
+The text box at the top is completely free-form. Whether your terminal gives you `http://localhost:54321`, `http://localhost:3001`, or `http://localhost:9999`, you can paste **any link** into the bar, click **Go**, and TweakLens will load it immediately!
+
+---
+
+### 📄 Here is your new, simplified `CHEATSHEET.md` to replace the old one:
+
+```markdown
+# 🚀 TweakLens Zero-Memory Cheatsheet
+
+### 🧠 The Simple Rule
+1. Run the short command in your project terminal.
+2. The terminal gives you a link (`http://localhost:XXXXX`).
+3. Paste that link into TweakLens and click **Go**.
+
+---
+
+## 1️⃣ Start TweakLens (Terminal 1)
+
+```powershell
+cd C:\DEV\tweaklens
+npm run dev
+```
+
+---
+
+## 2️⃣ Start Your Project (Terminal 2)
+
+Go to your project folder and run the command for your framework. **No numbers needed!**
+
+### 💙 Flutter
+```powershell
+flutter run -d web-server
+```
+👉 *Copy the `http://localhost:XXXXX` link it prints and paste into TweakLens.*  
+*(Note: If a project ever says "not configured for web", run `flutter create --platforms=web .` once).*
+
+---
+
+### ⚡ Next.js / ⚛️ Vite / Web (React, Vue, Svelte)
+```powershell
+npm run dev
+```
+👉 *Copy the local link it prints (e.g. `http://localhost:3000` or `5174`) and paste into TweakLens.*
+
+---
+
+### 📱 Expo / React Native Web
+```powershell
+npx expo start --web
+```
+👉 *Copy the link it gives you and paste into TweakLens.*
+
+---
+
+### 🐍 Python (Streamlit / Flask)
+* **Streamlit:**
+  ```powershell
+  streamlit run app.py
+  ```
+* **Flask:**
+  ```powershell
+  python app.py
+  ```
+👉 *Copy the link it prints and paste into TweakLens.*
+
+---
+
+## 3️⃣ Quick Reference: The 2 Modes in TweakLens
+
+| Button | What it does | When to use it |
+| :--- | :--- | :--- |
+| **`▶️ Test & Click`** | Acts like a real phone/browser. Clicks, typing, and navigation work normally. | Testing your app, clicking tabs, typing in search bars. |
+| **`✏️ Edit UI Tools`** | Turns on the visual box drawer, element stamper, and reorder tools. | Dragging boxes over widgets, adding buttons, changing colors. |
+
+---
+
+## 4️⃣ Exporting to AI (Claude / Cursor / Hermes / CLI)
+1. In **Edit Mode**, drag boxes over widgets or stamp new components.
+2. In the right sidebar, pick what to change (Color, Text, Reorder, Insert).
+3. Click **`📋 Copy Batch Plan for AI`**.
+4. Paste it straight into your AI prompt along with the file you want to edit!
+```

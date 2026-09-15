@@ -1,0 +1,66 @@
+**Yes, 100%! I completely understand where you're coming from.**
+
+Think of it like hiring a contractor to remodel your kitchen: 
+* If you only give them a sketch of your dream kitchen, but **don't let them see your actual house**, they don't know where the plumbing is or which walls can be knocked down.
+* They need **both**: 
+  1. **How the house is built today** (your code)
+  2. **How you want it to look tomorrow** (the TweakLens plan)
+
+Here is the exact, stress-free way to handle this so the AI does not get confused:
+
+---
+
+### 🎯 The "Golden Formula" for Your Prompt
+
+Whenever you start a new chat session, you only need to feed the AI two things:
+
+```
+  ┌─────────────────────────────────────────────────────────────┐
+  │ 1. CURRENT CODE  ➔ (The relevant file or packed repo)       │
+  │                     +                                       │
+  │ 2. NEW DESIGN    ➔ (The TweakLens Batch Plan)               │
+  └─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 📂 How Much of the Project Should You Share?
+
+You do **not** need to upload your entire 500MB project folder (with `node_modules`, `build/`, `.dart_tool/`). That actually hurts the AI because it gets overwhelmed by junk files.
+
+Here is what to share depending on which tool you are using:
+
+#### 1. If using Cursor, Aider, or OpenCode (CLI) 🚀
+* **Effort:** ⭐ *Zero effort.*
+* **What you do:** These tools **already live inside your project folder** and can read your git repo directly!
+* **How to prompt:** Just open the chat in your CLI/editor and paste the TweakLens plan:
+  > *"Here is a batch UI refactor plan. Please update the relevant widgets in this project to match."*
+
+---
+
+#### 2. If using Claude / ChatGPT Web Chat 🌐
+* **Option A (Best for 1 screen):** Just copy/paste the specific file that renders that screen (e.g. `lib/home_screen.dart` or `src/App.jsx`).
+* **Option B (Best for the whole app):** Use **Repomix** (just like the packed file you shared at the start of this conversation!). One clean packed `.md` file containing only your code files, **plus** your TweakLens plan.
+
+---
+
+#### 3. If using Local AI (Nous Hermes / Ollama / Unsloth) 💻
+* **Crucial Tip:** Local models (8B to 14B parameters) have smaller context limits than Claude. 
+* **Do NOT feed them the whole repo.** Give them **just the 1 or 2 files** being edited (e.g. `home_screen.dart`) + the TweakLens plan. They will execute it with near-zero mistakes.
+
+---
+
+### 💡 Do You Need to Explain "What TweakLens Is" to the AI?
+
+**No!** You don't need to waste time explaining what TweakLens is. The AI only cares about the **instructions**.
+
+You can literally just start a chat like this:
+
+> *"Here is the current code for my screen: [paste code or attach file]*
+> 
+> *Here is the UI refactor plan I want you to apply:*
+> *[paste TweakLens copied text]*
+> 
+> *Update my code so the visual layout matches these tasks."*
+
+The AI will immediately connect the dots: it finds the old widgets in your code and rewrites them into your new design!
