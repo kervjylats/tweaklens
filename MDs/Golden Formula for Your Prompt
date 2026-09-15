@@ -64,3 +64,18 @@ You can literally just start a chat like this:
 > *Update my code so the visual layout matches these tasks."*
 
 The AI will immediately connect the dots: it finds the old widgets in your code and rewrites them into your new design!
+
+---
+
+### 🔍 How Selectors Help the AI
+
+When TweakLens captures a real DOM selector (e.g. `button.subscribe`, `.hero-banner`, `#cta-btn`), it includes it in the prompt:
+
+```
+#### TASK 1: [Subscribe Button]
+- **Element Selector**: `button.subscribe`
+- **Action**: 🎨 RESTYLE & MODIFY
+- **Color / Background**: `#10b981`
+```
+
+**Why this matters:** instead of guessing which widget to modify, the AI can now search your code for that exact selector and target its changes precisely. This works best when your selectors are clean (IDs, class names, or tag+class combos). If the auto-captured selector is wrong, you can correct it manually in the sidebar's Element Selector field before copying the prompt.

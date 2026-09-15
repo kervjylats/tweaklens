@@ -18,11 +18,15 @@ export default function InspectorView() {
   const [inputUrl, setInputUrl] = useState('http://localhost:8085');
   const [activeUrl, setActiveUrl] = useState('http://localhost:8085');
   const [viewport, setViewport] = useState('mobile');
-  
+
   // Modes: 'interact' (Testing), 'edit' (Visual UI tool)
   const [mode, setMode] = useState('interact');
   const [activeTool, setActiveTool] = useState('box'); // 'box' or 'button' | 'text' | 'card' | 'input'
   const [framework, setFramework] = useState('flutter'); // 'flutter' | 'react' | 'generic'
+
+  // Element inspector toggle
+  const [inspectorEnabled, setInspectorEnabled] = useState(true);
+  const [inspectedEl, setInspectedEl] = useState(null); // last clicked element data from webview
 
   // Annotations & Stamped Widgets
   const [annotations, setAnnotations] = useState([]);
@@ -34,6 +38,47 @@ export default function InspectorView() {
 
   const webviewRef = useRef(null);
   const overlayRef = useRef(null);
+
+  // ----------------------------------------------------
+  // INJECT INSPECTOR CODE + TOGGLE ON WEBVIEW LOAD
+  // ----------------------------------------------------
+  useEffect(() => {
+    const wv = webviewRef.current;
+    if (!wv) return;
+
+    const inject = () => {
+      wv.executeJavaScript(INJECTED_INSPECTOR_CODE);
+      wv.executeJavaScript(`window.__TWEAKLENS_SET_ENABLED__(${inspectorEnabled})`);
+    };
+
+    const onDidFinishLoad = () => inject();
+    wv.addEventListener('did-finish-load', onDidFinishLoad);
+
+    // Inject immediately if already loaded
+    if (!wv.isLoading()) inject();
+
+    return () => wv.removeEventListener('did-finish-load', onDidFinishLoad);
+  }, [activeUrl, viewport]); // re-inject on URL or viewport change
+
+  // Toggle inspector when flag changes
+  useEffect(() => {
+    const wv = webviewRef.current;
+    if (!wv) return;
+    wv.executeJavaScript(`window.__TWEAKLENS_SET_ENABLED__(${inspectorEnabled})`);
+  }, [inspectorEnabled]);
+
+  // ----------------------------------------------------
+  // LISTEN FOR ELEMENT SELECT MESSAGES FROM WEBVIEW
+  // ----------------------------------------------------
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.data?.type === 'TWEAKLENS_SELECT') {
+        setInspectedEl(e.data.payload);
+      }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, []);
 
   // ----------------------------------------------------
   // DRAWING & STAMPING LOGIC
@@ -60,7 +105,8 @@ export default function InspectorView() {
         color: preset.color,
         reorderTarget: '',
         reorderDirection: 'below',
-        notes: ''
+        notes: '',
+        selector: '' // populated when inspector captures a real element
       };
       setAnnotations((prev) => [...prev, newWidget]);
       setSelectedBoxId(newWidget.id);
@@ -103,7 +149,8 @@ export default function InspectorView() {
         color: '#10b981',
         reorderTarget: '',
         reorderDirection: 'below',
-        notes: ''
+        notes: '',
+        selector: inspectedEl?.selector || '' // auto-attach if inspector captured one
       };
       setAnnotations((prev) => [...prev, newBox]);
       setSelectedBoxId(newBox.id);
@@ -130,7 +177,7 @@ export default function InspectorView() {
   // ----------------------------------------------------
   const generateBatchPrompt = () => {
     if (annotations.length === 0) return 'No visual changes boxed yet.';
-    
+
     let prompt = `### 📋 Batch UI Refactor Plan (${annotations.length} Tasks)\n`;
     prompt += `Target URL: \`${activeUrl}\`\n`;
     prompt += `Target Framework: **${framework.toUpperCase()}**\n\n`;
@@ -138,7 +185,12 @@ export default function InspectorView() {
 
     annotations.forEach((box, i) => {
       prompt += `#### TASK ${i + 1}: [${box.label.toUpperCase()}]\n`;
-      
+
+      // Include real selector when available
+      if (box.selector) {
+        prompt += `- **Element Selector**: \`${box.selector}\`\n`;
+      }
+
       if (box.type === 'insert') {
         prompt += `- **Action**: ➕ INSERT NEW WIDGET\n`;
         prompt += `- **Component Type**: ${box.subType.toUpperCase()}\n`;
@@ -203,6 +255,23 @@ export default function InspectorView() {
           </button>
         </div>
 
+        {/* Element Inspector Toggle */}
+        <div className="mode-toggle" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>🔍 Inspector</span>
+          <button
+            className={`chip ${inspectorEnabled ? 'active' : ''}`}
+            onClick={() => setInspectorEnabled((prev) => !prev)}
+            title={inspectorEnabled ? 'Inspector ON — click elements to capture selectors' : 'Inspector OFF — interactive mode'}
+          >
+            {inspectorEnabled ? 'ON' : 'OFF'}
+          </button>
+          {inspectedEl && (
+            <span style={{ fontSize: '10px', color: 'var(--accent-primary)', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {inspectedEl.selector}
+            </span>
+          )}
+        </div>
+
         {/* URL Input */}
         <div className="url-bar-wrap">
           <input
@@ -253,7 +322,11 @@ export default function InspectorView() {
             </button>
           ))}
           <span className="hint-stamp">
-            {activeTool !== 'box' ? `👉 Click anywhere on the phone to place a new ${activeTool}!` : 'Drag a box over an existing element.'}
+            {activeTool !== 'box'
+              ? `👉 Click anywhere on the phone to place a new ${activeTool}!`
+              : inspectorEnabled
+                ? '🔍 Click an element to capture its selector, then drag a box.'
+                : 'Drag a box over an existing element.'}
           </span>
         </div>
       )}
@@ -326,6 +399,11 @@ export default function InspectorView() {
                       {box.type === 'insert' ? '➕ ' : ''}
                       {box.label}
                     </span>
+                    {box.selector && (
+                      <span className="box-badge" style={{ left: 'auto', right: '4px', background: '#6d6dfa', fontSize: '9px' }}>
+                        {box.selector}
+                      </span>
+                    )}
                   </div>
                 );
               })}
@@ -369,6 +447,18 @@ export default function InspectorView() {
                       type="text"
                       value={selectedBox.label}
                       onChange={(e) => updateSelectedBox({ label: e.target.value })}
+                    />
+                  </label>
+
+                  {/* Element Selector — read-only, populated from inspector */}
+                  <label>
+                    <span>Element Selector</span>
+                    <input
+                      type="text"
+                      value={selectedBox.selector || ''}
+                      onChange={(e) => updateSelectedBox({ selector: e.target.value })}
+                      placeholder="e.g. .header, #cta-btn, button.primary"
+                      style={{ fontFamily: 'monospace', fontSize: '12px' }}
                     />
                   </label>
 
@@ -452,7 +542,9 @@ export default function InspectorView() {
               ) : (
                 <div className="sidebar-section">
                   <p className="hint">
-                    Select a tool above (or drag a box) to edit or place elements.
+                    {inspectorEnabled
+                      ? '🔍 Inspector ON — click an element in the app to capture its selector, then drag a box to annotate it.'
+                      : 'Select a tool above (or drag a box) to edit or place elements.'}
                   </p>
                 </div>
               )}

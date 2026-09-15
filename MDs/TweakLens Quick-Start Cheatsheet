@@ -78,6 +78,33 @@ npx expo start --web
 
 ---
 
+## 🔍 Element Inspector (New)
+
+The **Element Inspector** captures real CSS selectors from your app's DOM and carries them into your AI prompts — so the AI knows exactly which widget to modify.
+
+| State | What happens |
+| :--- | :--- |
+| **Inspector ON** (default in Edit mode) | Click any element in the app → a `selector` badge appears on the box → selector is included in the exported prompt. |
+| **Inspector OFF** | Interactive pass-through. Clicks navigate your app normally. |
+
+### Mental Model
+
+```
+1. Turn ON inspector
+2. Click the real element in the app (e.g. the "Subscribe" button)
+   → TweakLens captures: button.subscribe, .hero-banner, #cta-btn
+3. Drag a box around it
+   → The annotation inherits the selector automatically
+4. Export the prompt
+   → AI sees: "Element Selector: button.subscribe"
+   → AI finds that exact widget in your code
+```
+
+### Manual override
+The **Element Selector** field in the sidebar is editable — you can type or correct the selector by hand if the auto-capture picks the wrong element.
+
+---
+
 ## 4️⃣ Exporting to AI (Claude / Cursor / Hermes / CLI)
 1. In **Edit Mode**, drag boxes over widgets or stamp new components.
 2. In the right sidebar, pick what to change (Color, Text, Reorder, Insert).

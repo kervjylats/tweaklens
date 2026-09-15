@@ -3,26 +3,20 @@ export const INJECTED_INSPECTOR_CODE = `
   if (window.__TWEAKLENS_INJECTED__) return;
   window.__TWEAKLENS_INJECTED__ = true;
 
-  let currentSelected = null;
+  // Enable flag — false means inspector is OFF (interactive mode)
+  window.__TWEAKLENS_ENABLED__ = false;
 
-  // 1. Floating highlight box
+  let currentSelected = null;
+  let currentSelector = '';
+
+  // Floating highlight box
   const box = document.createElement('div');
   box.id = '__tweaklens_highlight__';
-  box.style.position = 'fixed';
-  box.style.pointerEvents = 'none';
-  box.style.border = '2px solid #6d6dfa';
-  box.style.backgroundColor = 'rgba(109, 109, 250, 0.18)';
-  box.style.zIndex = '9999999';
-  box.style.display = 'none';
-  box.style.borderRadius = '4px';
-  box.style.transition = 'all 0.05s ease';
+  box.style.cssText = 'position:fixed;pointer-events:none;border:2px solid #6d6dfa;background:rgba(109,109,250,0.18);z-index:9999999;display:none;border-radius:4px;transition:all 0.05s ease';
   document.body.appendChild(box);
 
   function syncBox(el) {
-    if (!el) {
-      box.style.display = 'none';
-      return;
-    }
+    if (!el || !window.__TWEAKLENS_ENABLED__) { box.style.display = 'none'; return; }
     const r = el.getBoundingClientRect();
     box.style.display = 'block';
     box.style.top = r.top + 'px';
@@ -31,34 +25,38 @@ export const INJECTED_INSPECTOR_CODE = `
     box.style.height = r.height + 'px';
   }
 
-  // Hover tracker
+  function getSelector(el) {
+    if (el.id) return '#' + el.id;
+    let sel = el.tagName.toLowerCase();
+    if (el.className && typeof el.className === 'string') {
+      const cls = el.className.trim().split(/\\s+/).slice(0, 2).join('.');
+      if (cls) sel += '.' + cls;
+    }
+    return sel;
+  }
+
+  // Hover — only when enabled
   document.addEventListener('mouseover', (e) => {
+    if (!window.__TWEAKLENS_ENABLED__) { box.style.display = 'none'; return; }
     if (e.target === box || e.target === document.body) return;
     syncBox(e.target);
   }, true);
 
-  // Click tracker
+  // Click — only when enabled
   document.addEventListener('click', (e) => {
+    if (!window.__TWEAKLENS_ENABLED__) return;
     if (e.target === box) return;
     e.preventDefault();
     e.stopPropagation();
 
     currentSelected = e.target;
+    currentSelector = getSelector(currentSelected);
     syncBox(currentSelected);
 
     const comp = window.getComputedStyle(currentSelected);
-    
-    // Determine friendly selector
-    let selector = currentSelected.tagName.toLowerCase();
-    if (currentSelected.id) {
-      selector = '#' + currentSelected.id;
-    } else if (currentSelected.className && typeof currentSelected.className === 'string') {
-      const cls = currentSelected.className.trim().split(/\\s+/).slice(0, 2).join('.');
-      if (cls) selector += '.' + cls;
-    }
 
     const payload = {
-      selector,
+      selector: currentSelector,
       tagName: currentSelected.tagName.toLowerCase(),
       text: currentSelected.innerText?.slice(0, 80) || '',
       styles: {
@@ -71,10 +69,16 @@ export const INJECTED_INSPECTOR_CODE = `
       }
     };
 
-    console.log('[TWEAKLENS_SELECT]:' + JSON.stringify(payload));
+    window.postMessage({ type: 'TWEAKLENS_SELECT', payload }, '*');
   }, true);
 
-  // Function called from host to apply styles live
+  // Called from host to toggle on/off
+  window.__TWEAKLENS_SET_ENABLED__ = function(flag) {
+    window.__TWEAKLENS_ENABLED__ = !!flag;
+    if (!flag) { box.style.display = 'none'; }
+  };
+
+  // Called from host to apply styles live
   window.__TWEAKLENS_APPLY__ = function(prop, val) {
     if (!currentSelected) return;
     if (prop === 'innerText') {
