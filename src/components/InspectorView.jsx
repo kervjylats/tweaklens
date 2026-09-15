@@ -271,6 +271,7 @@ export default function InspectorView() {
           >
             {/* Embedded Live App */}
             <webview
+              key={viewport}
               ref={webviewRef}
               src={activeUrl}
               className="guest-webview"
