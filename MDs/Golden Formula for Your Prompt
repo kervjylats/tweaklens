@@ -46,6 +46,32 @@ When TweakLens captures an element, it includes source information in the plan:
 
 If source info isn't available (non-React apps), the selector + text + your notes still work — just less precisely.
 
+## How Device Grouping Helps
+
+When you use the **Wall** to annotate across multiple devices, the exported prompt groups tasks by device:
+
+```
+---
+### 📱 iPhone 14/15 (390×844)
+
+#### TASK 1: [Subscribe Button]
+- **Device**: 📱 iPhone 14/15 (390×844)
+- **Source**: src/components/ItemCards.tsx:97
+- **Action**: RESTYLE & MODIFY
+- **Detailed Changes**: Make button full width on mobile
+
+---
+### 🖥️ Desktop HD (1920×1080)
+
+#### TASK 2: [Subscribe Button]
+- **Device**: 🖥️ Desktop HD (1920×1080)
+- **Source**: src/components/ItemCards.tsx:97
+- **Action**: RESTYLE & MODIFY
+- **Detailed Changes**: Keep 200px max-width on desktop
+```
+
+The AI sees exactly which viewport each change targets — responsive Tailwind classes (`sm:`, `md:`, `lg:`) map naturally to the device groups.
+
 ---
 
 ## How Much of the Project Should You Share?

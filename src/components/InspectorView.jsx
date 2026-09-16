@@ -1,11 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { INJECTED_INSPECTOR_CODE } from '../lib/injectedInspector.js';
-
-const VIEWPORTS = {
-  mobile: { label: '📱 Mobile', width: '390px', height: '844px' },
-  tablet: { label: '📱 Tablet', width: '768px', height: '100%' },
-  desktop: { label: '💻 Desktop', width: '100%', height: '100%' }
-};
+import DEVICES from '../lib/devices.js';
 
 const STAMP_PRESETS = {
   button: { label: '🔘 + Button', width: 140, height: 44, defaultText: 'New Button', color: '#6d6dfa' },
@@ -14,10 +9,14 @@ const STAMP_PRESETS = {
   input: { label: '📥 + Input', width: 280, height: 46, defaultText: 'Placeholder...', color: '#2a2a35' }
 };
 
+const DEVICE_KEYS = Object.keys(DEVICES);
+
 export default function InspectorView() {
   const [inputUrl, setInputUrl] = useState('http://localhost:8085');
   const [activeUrl, setActiveUrl] = useState('http://localhost:8085');
-  const [viewport, setViewport] = useState('mobile');
+  const [deviceKey, setDeviceKey] = useState('iphone-14');
+  const [viewMode, setViewMode] = useState('single'); // 'single' | 'wall'
+  const [fitZoom, setFitZoom] = useState(false);
 
   // Modes: 'interact' (Testing), 'edit' (Visual UI tool)
   const [mode, setMode] = useState('interact');
@@ -25,11 +24,10 @@ export default function InspectorView() {
   const [framework, setFramework] = useState('flutter');
 
   // Element inspector
-  const inspectorActive = mode === 'edit' && picking;
   const [picking, setPicking] = useState(false);
   const [inspectedEl, setInspectedEl] = useState(null);
 
-  // Annotations & Stamped Widgets
+  // Annotations & Stamped Widgets — each now carries a `device` field
   const [annotations, setAnnotations] = useState([]);
   const [selectedBoxId, setSelectedBoxId] = useState(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -40,26 +38,64 @@ export default function InspectorView() {
   // Rules preamble toggle
   const [includeRules, setIncludeRules] = useState(true);
 
+  // Wall: refs for each device's webview
+  const wallWebviewRefs = useRef({});
+
   const webviewRef = useRef(null);
   const overlayRef = useRef(null);
+
+  const device = DEVICES[deviceKey];
+  const inspectorActive = mode === 'edit' && picking;
+
+  // ----------------------------------------------------
+  // CDP EMULATION — apply real device metrics via IPC
+  // ----------------------------------------------------
+  const applyDeviceEmulation = useCallback((wv, devKey) => {
+    if (!wv || !window.tweaklens?.emulate) return;
+    const dev = DEVICES[devKey];
+    if (!dev) return;
+
+    const onReady = () => {
+      try {
+        const wcId = wv.getWebContentsId();
+        window.tweaklens.emulate(wcId, {
+          width: dev.width,
+          height: dev.height,
+          dpr: dev.dpr,
+          mobile: dev.mobile,
+          ua: dev.ua,
+          media: dev.media
+        });
+      } catch (_) {
+        // getWebContentsId() not available yet — will retry on next event
+      }
+    };
+
+    wv.addEventListener('dom-ready', onReady);
+    wv.addEventListener('did-finish-load', onReady);
+  }, []);
 
   // ----------------------------------------------------
   // INJECT INSPECTOR CODE + LISTEN FOR IPC FROM GUEST
   // ----------------------------------------------------
-  const injectInspector = () => {
-    const wv = webviewRef.current;
+  const injectInspector = useCallback((wv) => {
     if (!wv) return;
     try {
       wv.executeJavaScript(INJECTED_INSPECTOR_CODE);
       wv.executeJavaScript(`window.__TWEAKLENS_SET_ENABLED__(${inspectorActive})`);
     } catch (_) { /* webview not ready */ }
-  };
+  }, [inspectorActive]);
 
+  // Single mode: inject + emulate on the main webview
   useEffect(() => {
+    if (viewMode !== 'single') return;
     const wv = webviewRef.current;
     if (!wv) return;
 
-    const onReady = () => injectInspector();
+    const onReady = () => {
+      injectInspector(wv);
+      applyDeviceEmulation(wv, deviceKey);
+    };
     wv.addEventListener('dom-ready', onReady);
     wv.addEventListener('did-finish-load', onReady);
 
@@ -67,20 +103,20 @@ export default function InspectorView() {
       wv.removeEventListener('dom-ready', onReady);
       wv.removeEventListener('did-finish-load', onReady);
     };
-  }, [activeUrl, viewport, inspectorActive]);
+  }, [activeUrl, deviceKey, viewMode, inspectorActive, injectInspector, applyDeviceEmulation]);
 
   // Toggle inspector flag on the guest
   useEffect(() => {
-    const wv = webviewRef.current;
+    const wv = viewMode === 'single' ? webviewRef.current : null;
     if (!wv) return;
     try {
       wv.executeJavaScript(`window.__TWEAKLENS_SET_ENABLED__(${inspectorActive})`);
     } catch (_) {}
-  }, [inspectorActive]);
+  }, [inspectorActive, viewMode]);
 
   // Listen for element selections via IPC bridge (NOT window.postMessage)
   useEffect(() => {
-    const wv = webviewRef.current;
+    const wv = viewMode === 'single' ? webviewRef.current : null;
     if (!wv) return;
 
     const handler = (e) => {
@@ -88,7 +124,6 @@ export default function InspectorView() {
         const payload = e.args[0];
         setInspectedEl(payload);
 
-        // If we're in picking mode, auto-create an annotation box at the element's rect
         if (picking && payload.rect && payload.rect.width > 5 && payload.rect.height > 5) {
           const newBox = {
             id: Date.now(),
@@ -108,7 +143,8 @@ export default function InspectorView() {
             dataTl: payload.dataTl || null,
             dataSrc: payload.dataSrc || null,
             source: payload.source || null,
-            capturedStyles: payload.styles || {}
+            capturedStyles: payload.styles || {},
+            device: deviceKey
           };
           setAnnotations((prev) => [...prev, newBox]);
           setSelectedBoxId(newBox.id);
@@ -119,7 +155,7 @@ export default function InspectorView() {
 
     wv.addEventListener('ipc-message', handler);
     return () => wv.removeEventListener('ipc-message', handler);
-  }, [picking]); // re-bind when picking changes so the auto-create fires
+  }, [picking, deviceKey, viewMode]);
 
   // ----------------------------------------------------
   // DRAWING & STAMPING LOGIC
@@ -150,7 +186,8 @@ export default function InspectorView() {
         dataTl: null,
         dataSrc: null,
         source: null,
-        capturedStyles: {}
+        capturedStyles: {},
+        device: deviceKey
       };
       setAnnotations((prev) => [...prev, newWidget]);
       setSelectedBoxId(newWidget.id);
@@ -197,7 +234,8 @@ export default function InspectorView() {
         dataTl: inspectedEl?.dataTl || null,
         dataSrc: inspectedEl?.dataSrc || null,
         source: inspectedEl?.source || null,
-        capturedStyles: inspectedEl?.styles || {}
+        capturedStyles: inspectedEl?.styles || {},
+        device: deviceKey
       };
       setAnnotations((prev) => [...prev, newBox]);
       setSelectedBoxId(newBox.id);
@@ -220,7 +258,7 @@ export default function InspectorView() {
   const selectedBox = annotations.find((b) => b.id === selectedBoxId);
 
   // ----------------------------------------------------
-  // BATCH REFACTOR PROMPT BUILDER
+  // BATCH REFACTOR PROMPT BUILDER — groups by device
   // ----------------------------------------------------
   const generateBatchPrompt = () => {
     if (annotations.length === 0) return 'No visual changes boxed yet.';
@@ -240,53 +278,79 @@ export default function InspectorView() {
     prompt += `### Batch UI Refactor Plan (${annotations.length} Tasks)\n`;
     prompt += `Target URL: \`${activeUrl}\`\n`;
     prompt += `Target Framework: **${framework.toUpperCase()}**\n\n`;
-    prompt += `Please review the whole task list and update the code step-by-step:\n\n`;
 
-    annotations.forEach((box, i) => {
-      prompt += `#### TASK ${i + 1}: [${box.label.toUpperCase()}]\n`;
+    // Group annotations by device
+    const grouped = {};
+    for (const box of annotations) {
+      const dev = box.device || deviceKey;
+      if (!grouped[dev]) grouped[dev] = [];
+      grouped[dev].push(box);
+    }
 
-      // Source information (highest priority)
-      if (box.source?.file) {
-        prompt += `- **Source**: \`${box.source.file}:${box.source.line}\`\n`;
-      }
-      if (box.selector) {
-        prompt += `- **Element Selector**: \`${box.selector}\`\n`;
-      }
-      if (box.dataTl) {
-        prompt += `- **Component**: \`${box.dataTl}\`\n`;
-      }
-      if (box.dataSrc) {
-        prompt += `- **Source Tag**: \`${box.dataSrc}\`\n`;
-      }
+    const deviceKeys = Object.keys(grouped);
 
-      // Current computed styles (before state)
-      if (box.capturedStyles && Object.keys(box.capturedStyles).length > 0) {
-        const cs = box.capturedStyles;
-        prompt += `- **Current Styles** (before): color=\`${cs.color}\`, bg=\`${cs.backgroundColor}\`, font=\`${cs.fontSize} ${cs.fontFamily?.split(',')[0]}\`, weight=\`${cs.fontWeight}\`, padding=\`${cs.padding}\`, radius=\`${cs.borderRadius}\`\n`;
+    for (const dk of deviceKeys) {
+      const dev = DEVICES[dk];
+      const boxes = grouped[dk];
+
+      if (deviceKeys.length > 1) {
+        prompt += `---\n### ${dev ? dev.label : dk} (${dev ? `${dev.width}×${dev.height}` : dk})\n\n`;
       }
 
-      if (box.type === 'insert') {
-        prompt += `- **Action**: INSERT NEW WIDGET\n`;
-        prompt += `- **Component Type**: ${box.subType.toUpperCase()}\n`;
-        if (box.text) prompt += `- **Initial Text**: "${box.text}"\n`;
-        if (box.color) prompt += `- **Styling / Color**: \`${box.color}\`\n`;
-        if (box.notes) prompt += `- **Placement & Notes**: ${box.notes}\n`;
-      } else if (box.type === 'reorder') {
-        prompt += `- **Action**: REORDER / MOVE\n`;
-        prompt += `- **Movement**: Move **${box.reorderDirection.toUpperCase()}** "${box.reorderTarget || 'the specified section'}"\n`;
-        if (box.notes) prompt += `- **Details**: ${box.notes}\n`;
-      } else if (box.type === 'remove') {
-        prompt += `- **Action**: REMOVE / HIDE\n`;
-        prompt += `- **Instruction**: Delete or conditionally hide this widget\n`;
-        if (box.notes) prompt += `- **Reason / Details**: ${box.notes}\n`;
-      } else {
-        prompt += `- **Action**: RESTYLE & MODIFY\n`;
-        if (box.text) prompt += `- **Change Text To**: "${box.text}"\n`;
-        if (box.color) prompt += `- **Color / Background**: \`${box.color}\`\n`;
-        if (box.notes) prompt += `- **Detailed Changes**: ${box.notes}\n`;
-      }
-      prompt += '\n';
-    });
+      prompt += `Please review the whole task list and update the code step-by-step:\n\n`;
+
+      boxes.forEach((box) => {
+        const globalIdx = annotations.indexOf(box) + 1;
+        prompt += `#### TASK ${globalIdx}: [${box.label.toUpperCase()}]\n`;
+
+        // Device line
+        if (deviceKeys.length > 1) {
+          prompt += `- **Device**: ${dev ? `${dev.label} (${dev.width}×${dev.height})` : dk}\n`;
+        }
+
+        // Source information
+        if (box.source?.file) {
+          prompt += `- **Source**: \`${box.source.file}:${box.source.line}\`\n`;
+        }
+        if (box.selector) {
+          prompt += `- **Element Selector**: \`${box.selector}\`\n`;
+        }
+        if (box.dataTl) {
+          prompt += `- **Component**: \`${box.dataTl}\`\n`;
+        }
+        if (box.dataSrc) {
+          prompt += `- **Source Tag**: \`${box.dataSrc}\`\n`;
+        }
+
+        // Current computed styles
+        if (box.capturedStyles && Object.keys(box.capturedStyles).length > 0) {
+          const cs = box.capturedStyles;
+          prompt += `- **Current Styles** (before): color=\`${cs.color}\`, bg=\`${cs.backgroundColor}\`, font=\`${cs.fontSize} ${cs.fontFamily?.split(',')[0]}\`, weight=\`${cs.fontWeight}\`, padding=\`${cs.padding}\`, radius=\`${cs.borderRadius}\`\n`;
+        }
+
+        if (box.type === 'insert') {
+          prompt += `- **Action**: INSERT NEW WIDGET\n`;
+          prompt += `- **Component Type**: ${box.subType.toUpperCase()}\n`;
+          if (box.text) prompt += `- **Initial Text**: "${box.text}"\n`;
+          if (box.color) prompt += `- **Styling / Color**: \`${box.color}\`\n`;
+          if (box.notes) prompt += `- **Placement & Notes**: ${box.notes}\n`;
+        } else if (box.type === 'reorder') {
+          prompt += `- **Action**: REORDER / MOVE\n`;
+          prompt += `- **Movement**: Move **${box.reorderDirection.toUpperCase()}** "${box.reorderTarget || 'the specified section'}"\n`;
+          if (box.notes) prompt += `- **Details**: ${box.notes}\n`;
+        } else if (box.type === 'remove') {
+          prompt += `- **Action**: REMOVE / HIDE\n`;
+          prompt += `- **Instruction**: Delete or conditionally hide this widget\n`;
+          if (box.notes) prompt += `- **Reason / Details**: ${box.notes}\n`;
+        } else {
+          prompt += `- **Action**: RESTYLE & MODIFY\n`;
+          if (box.text) prompt += `- **Change Text To**: "${box.text}"\n`;
+          if (box.color) prompt += `- **Color / Background**: \`${box.color}\`\n`;
+          if (box.notes) prompt += `- **Detailed Changes**: ${box.notes}\n`;
+        }
+        prompt += '\n';
+      });
+    }
 
     if (framework === 'flutter') {
       prompt += `Instructions for Flutter: Look for matching Widgets in \`lib/\` (e.g. ChoiceChip, Card, ElevatedButton, Container) and implement the changes cleanly in Dart.`;
@@ -312,6 +376,396 @@ export default function InspectorView() {
       ? 'annotation-overlay active-overlay'
       : 'annotation-overlay passive-overlay';
 
+  // Filter annotations for the current device in single mode
+  const visibleAnnotations = viewMode === 'single'
+    ? annotations.filter((b) => b.device === deviceKey)
+    : annotations;
+
+  // ----------------------------------------------------
+  // WALL VIEW — renders all devices as live webviews
+  // ----------------------------------------------------
+  if (viewMode === 'wall') {
+    const wallDevices = DEVICE_KEYS;
+
+    return (
+      <div className="lens-container">
+        {/* Topbar */}
+        <header className="lens-topbar">
+          <div className="logo-group">
+            <span className="logo-dot"></span>
+            <span className="logo-text">TweakLens</span>
+          </div>
+
+          <div className="mode-toggle">
+            <button
+              className={`mode-btn ${mode === 'interact' ? 'active-test' : ''}`}
+              onClick={() => { setMode('interact'); setPicking(false); }}
+            >
+              ▶️ Test & Click
+            </button>
+            <button
+              className={`mode-btn ${mode === 'edit' ? 'active-edit' : ''}`}
+              onClick={() => setMode('edit')}
+            >
+              ✏️ Edit UI Tools
+            </button>
+          </div>
+
+          {mode === 'edit' && (
+            <div className="mode-toggle" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <button
+                className={`tool-chip ${picking ? 'selected' : ''}`}
+                onClick={() => setPicking((prev) => !prev)}
+                style={{ fontSize: '11px' }}
+              >
+                {picking ? '🔴 Picking...' : '🔍 Pick Element'}
+              </button>
+            </div>
+          )}
+
+          <div className="url-bar-wrap">
+            <input
+              type="text"
+              className="url-input"
+              value={inputUrl}
+              onChange={(e) => setInputUrl(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && setActiveUrl(inputUrl)}
+            />
+            <button className="btn primary" onClick={() => setActiveUrl(inputUrl)}>Go</button>
+          </div>
+
+          {/* View Toggle + Fit */}
+          <div className="viewport-toggle">
+            <button
+              className={`chip ${viewMode === 'single' ? 'active' : ''}`}
+              onClick={() => setViewMode('single')}
+            >
+              Single
+            </button>
+            <button
+              className={`chip ${viewMode === 'wall' ? 'active' : ''}`}
+              onClick={() => setViewMode('wall')}
+            >
+              Wall
+            </button>
+            <button
+              className={`chip ${fitZoom ? 'active' : ''}`}
+              onClick={() => setFitZoom((prev) => !prev)}
+              style={{ fontSize: '10px' }}
+              title="Fit all devices in viewport (may glitch on some apps)"
+            >
+              {fitZoom ? '🔍 Fit' : '📏 1:1'}
+            </button>
+          </div>
+        </header>
+
+        {/* Edit sub-toolbar in wall mode */}
+        {mode === 'edit' && (
+          <div className="edit-subbar">
+            <span className="subbar-label">TOOL:</span>
+            <button
+              className={`tool-chip ${activeTool === 'box' && !picking ? 'selected' : ''}`}
+              onClick={() => { setActiveTool('box'); setPicking(false); }}
+            >
+              ✏️ Drag Box
+            </button>
+            <div className="divider-v"></div>
+            <span className="subbar-label">STAMP NEW:</span>
+            {Object.entries(STAMP_PRESETS).map(([k, v]) => (
+              <button
+                key={k}
+                className={`tool-chip stamp ${activeTool === k ? 'selected' : ''}`}
+                onClick={() => { setActiveTool(k); setPicking(false); }}
+              >
+                {v.label}
+              </button>
+            ))}
+            <span className="hint-stamp">
+              {picking
+                ? 'Click any element to capture...'
+                : 'Drag a box on any device frame'}
+            </span>
+          </div>
+        )}
+
+        {/* Main Workspace — Wall */}
+        <div className="lens-body">
+          <div className={`lens-canvas wall-canvas ${fitZoom ? 'fit-zoom' : ''}`}>
+            {wallDevices.map((dk) => {
+              const dev = DEVICES[dk];
+              const devAnnotations = annotations.filter((b) => b.device === dk);
+
+              return (
+                <div
+                  key={dk}
+                  className="wall-device-wrapper"
+                  style={{
+                    width: dev.width,
+                    minWidth: dev.width,
+                    height: dev.height
+                  }}
+                >
+                  <div className="wall-device-label">
+                    {dev.label} ({dev.width}×{dev.height})
+                  </div>
+                  <div className="device-frame wall-frame" style={{ width: dev.width, height: dev.height }}>
+                    <webview
+                      ref={(el) => { if (el) wallWebviewRefs.current[dk] = el; }}
+                      src={activeUrl}
+                      className="guest-webview"
+                      preload={window.tweaklens?.webviewPreload}
+                      style={{ width: dev.width, height: dev.height }}
+                    />
+                    <div
+                      className={mode === 'edit' ? 'annotation-overlay active-overlay' : 'annotation-overlay passive-overlay'}
+                      style={{ pointerEvents: mode === 'edit' ? 'auto' : 'none' }}
+                    >
+                      {devAnnotations.map((box, i) => {
+                        let badgeClass = 'box-modify';
+                        if (box.type === 'insert') badgeClass = 'box-insert';
+                        if (box.type === 'reorder') badgeClass = 'box-reorder';
+                        if (box.type === 'remove') badgeClass = 'box-remove';
+
+                        return (
+                          <div
+                            key={box.id}
+                            className={`annotated-box ${badgeClass} ${selectedBoxId === box.id ? 'selected' : ''}`}
+                            style={{
+                              left: box.x,
+                              top: box.y,
+                              width: box.width,
+                              height: box.height,
+                              pointerEvents: mode === 'edit' && !picking ? 'auto' : 'none'
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedBoxId(box.id);
+                            }}
+                          >
+                            <span className="box-badge">{annotations.indexOf(box) + 1}</span>
+                            <span className="box-label-tag">
+                              {box.type === 'insert' ? '➕ ' : ''}
+                              {box.label}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Sidebar */}
+          <aside className="lens-sidebar">
+            {mode === 'interact' ? (
+              <div className="sidebar-section">
+                <div className="status-pill green">▶️ Test Mode Active</div>
+                <h3>Wall View</h3>
+                <p className="hint">
+                  All devices are live. Clicks and typing pass straight into your app.
+                </p>
+                <button
+                  className="btn primary full-width"
+                  style={{ marginTop: '16px' }}
+                  onClick={() => setMode('edit')}
+                >
+                  ✏️ Switch to Edit UI Mode
+                </button>
+              </div>
+            ) : (
+              <>
+                {selectedBox ? (
+                  <div className="sidebar-section form-group">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 'bold', color: '#ff4757' }}>
+                        Task #{annotations.findIndex((b) => b.id === selectedBox.id) + 1}
+                      </span>
+                      <button className="btn-link danger" onClick={() => deleteBox(selectedBox.id)}>
+                        Delete Box
+                      </button>
+                    </div>
+
+                    {selectedBox.source?.file && (
+                      <div style={{ fontSize: '11px', color: 'var(--accent-primary)', fontFamily: 'monospace', marginBottom: '8px', wordBreak: 'break-all' }}>
+                        📄 {selectedBox.source.file}:{selectedBox.source.line}
+                      </div>
+                    )}
+                    {selectedBox.dataTl && (
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                        🏷️ Component: {selectedBox.dataTl}
+                      </div>
+                    )}
+
+                    <label>
+                      <span>Widget Name / Label</span>
+                      <input
+                        type="text"
+                        value={selectedBox.label}
+                        onChange={(e) => updateSelectedBox({ label: e.target.value })}
+                      />
+                    </label>
+
+                    <label>
+                      <span>Element Selector</span>
+                      <input
+                        type="text"
+                        value={selectedBox.selector || ''}
+                        onChange={(e) => updateSelectedBox({ selector: e.target.value })}
+                        placeholder="e.g. button.primary, #cta-btn"
+                        style={{ fontFamily: 'monospace', fontSize: '12px' }}
+                      />
+                    </label>
+
+                    {selectedBox.capturedStyles && Object.keys(selectedBox.capturedStyles).length > 0 && (
+                      <details style={{ marginBottom: '8px' }}>
+                        <summary style={{ fontSize: '11px', color: 'var(--text-muted)', cursor: 'pointer' }}>Current Styles (before)</summary>
+                        <div style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.6' }}>
+                          {Object.entries(selectedBox.capturedStyles).map(([k, v]) => (
+                            <div key={k}>{k}: {v}</div>
+                          ))}
+                        </div>
+                      </details>
+                    )}
+
+                    <label>
+                      <span>Action Type</span>
+                      <select
+                        value={selectedBox.type}
+                        onChange={(e) => updateSelectedBox({ type: e.target.value })}
+                      >
+                        <option value="styling">🎨 Restyle & Color</option>
+                        <option value="reorder">🔀 Move / Reorder</option>
+                        <option value="insert">➕ Insert New Widget</option>
+                        <option value="remove">❌ Remove Widget</option>
+                      </select>
+                    </label>
+
+                    {selectedBox.type === 'reorder' && (
+                      <div className="reorder-group">
+                        <label>
+                          <span>Direction</span>
+                          <select
+                            value={selectedBox.reorderDirection}
+                            onChange={(e) => updateSelectedBox({ reorderDirection: e.target.value })}
+                          >
+                            <option value="above">⬆️ Move ABOVE</option>
+                            <option value="below">⬇️ Move BELOW</option>
+                            <option value="inside">📥 Move INSIDE</option>
+                            <option value="top">🔝 Move to TOP of screen</option>
+                            <option value="bottom">🔻 Move to BOTTOM of screen</option>
+                          </select>
+                        </label>
+                        <label>
+                          <span>Relative To</span>
+                          <input
+                            type="text"
+                            placeholder="e.g. Subscribe Button"
+                            value={selectedBox.reorderTarget}
+                            onChange={(e) => updateSelectedBox({ reorderTarget: e.target.value })}
+                          />
+                        </label>
+                      </div>
+                    )}
+
+                    {(selectedBox.type === 'styling' || selectedBox.type === 'insert') && (
+                      <label>
+                        <span>Text / Title</span>
+                        <input
+                          type="text"
+                          value={selectedBox.text}
+                          placeholder="e.g. Quick Practice"
+                          onChange={(e) => updateSelectedBox({ text: e.target.value })}
+                        />
+                      </label>
+                    )}
+
+                    {selectedBox.type !== 'remove' && (
+                      <label>
+                        <span>Color / Theme</span>
+                        <input
+                          type="text"
+                          value={selectedBox.color}
+                          placeholder="e.g. #10b981 or branding.accentColor"
+                          onChange={(e) => updateSelectedBox({ color: e.target.value })}
+                        />
+                      </label>
+                    )}
+
+                    <label>
+                      <span>Instruction for AI</span>
+                      <textarea
+                        rows={3}
+                        value={selectedBox.notes}
+                        placeholder="e.g. Make button full width with 16px padding and bold text"
+                        onChange={(e) => updateSelectedBox({ notes: e.target.value })}
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <div className="sidebar-section">
+                    <p className="hint">
+                      {picking
+                        ? '🔍 Click any element in a device frame to capture it.'
+                        : 'Pick an element, or drag a box on any device to annotate it.'}
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Batch Export */}
+            <div className="sidebar-section diffs-section" style={{ marginTop: 'auto' }}>
+              <div className="diffs-header">
+                <h3>Batch Tasks ({annotations.length})</h3>
+                {annotations.length > 0 && (
+                  <button className="btn-link" onClick={() => setAnnotations([])}>Clear All</button>
+                )}
+              </div>
+
+              <div style={{ marginBottom: '10px' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Target Stack:</span>
+                <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
+                  {['flutter', 'react', 'generic'].map((f) => (
+                    <button
+                      key={f}
+                      className={`chip ${framework === f ? 'active' : ''}`}
+                      onClick={() => setFramework(f)}
+                    >
+                      {f === 'react' ? 'React / Next' : f.charAt(0).toUpperCase() + f.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px', fontSize: '11px', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={includeRules}
+                  onChange={(e) => setIncludeRules(e.target.checked)}
+                  style={{ width: '14px', height: '14px' }}
+                />
+                Include project rules in prompt
+              </label>
+
+              <button
+                className="btn primary full-width"
+                disabled={annotations.length === 0}
+                onClick={copyPrompt}
+              >
+                {copied ? '✅ Copied Batch Plan!' : '📋 Copy Batch Plan for AI'}
+              </button>
+            </div>
+          </aside>
+        </div>
+      </div>
+    );
+  }
+
+  // ----------------------------------------------------
+  // SINGLE VIEW (default)
+  // ----------------------------------------------------
   return (
     <div className="lens-container">
       {/* Topbar */}
@@ -368,17 +822,34 @@ export default function InspectorView() {
           <button className="btn icon-btn" onClick={() => { try { webviewRef.current?.reload(); } catch (_) {} }}>🔄</button>
         </div>
 
-        {/* Viewport Switcher */}
+        {/* Device Switcher */}
         <div className="viewport-toggle">
-          {Object.entries(VIEWPORTS).map(([k, v]) => (
+          {DEVICE_KEYS.map((dk) => (
             <button
-              key={k}
-              className={`chip ${viewport === k ? 'active' : ''}`}
-              onClick={() => setViewport(k)}
+              key={dk}
+              className={`chip ${deviceKey === dk ? 'active' : ''}`}
+              onClick={() => setDeviceKey(dk)}
+              title={`${DEVICES[dk].width}×${DEVICES[dk].height} · DPR ${DEVICES[dk].dpr}`}
             >
-              {v.label}
+              {DEVICES[dk].label}
             </button>
           ))}
+        </div>
+
+        {/* View Toggle */}
+        <div className="viewport-toggle" style={{ marginLeft: '6px' }}>
+          <button
+            className="chip active"
+            onClick={() => setViewMode('single')}
+          >
+            Single
+          </button>
+          <button
+            className="chip"
+            onClick={() => setViewMode('wall')}
+          >
+            Wall
+          </button>
         </div>
       </header>
 
@@ -422,14 +893,19 @@ export default function InspectorView() {
           <div
             className="device-frame"
             style={{
-              width: VIEWPORTS[viewport].width,
-              height: VIEWPORTS[viewport].height,
+              width: device.width,
+              height: device.height,
               position: 'relative'
             }}
           >
+            {/* Device label */}
+            <div className="wall-device-label">
+              {device.label} ({device.width}×{device.height})
+            </div>
+
             {/* Embedded Live App */}
             <webview
-              key={viewport}
+              key={deviceKey}
               ref={webviewRef}
               src={activeUrl}
               className="guest-webview"
@@ -456,7 +932,7 @@ export default function InspectorView() {
                 />
               )}
 
-              {annotations.map((box, i) => {
+              {visibleAnnotations.map((box, i) => {
                 let badgeClass = 'box-modify';
                 if (box.type === 'insert') badgeClass = 'box-insert';
                 if (box.type === 'reorder') badgeClass = 'box-reorder';
@@ -478,7 +954,7 @@ export default function InspectorView() {
                       setSelectedBoxId(box.id);
                     }}
                   >
-                    <span className="box-badge">{i + 1}</span>
+                    <span className="box-badge">{annotations.indexOf(box) + 1}</span>
                     <span className="box-label-tag">
                       {box.type === 'insert' ? '➕ ' : ''}
                       {box.label}
@@ -525,7 +1001,7 @@ export default function InspectorView() {
                     </button>
                   </div>
 
-                  {/* Source info (read-only, when available) */}
+                  {/* Source info */}
                   {selectedBox.source?.file && (
                     <div style={{ fontSize: '11px', color: 'var(--accent-primary)', fontFamily: 'monospace', marginBottom: '8px', wordBreak: 'break-all' }}>
                       📄 {selectedBox.source.file}:{selectedBox.source.line}
@@ -557,7 +1033,6 @@ export default function InspectorView() {
                     />
                   </label>
 
-                  {/* Current styles preview */}
                   {selectedBox.capturedStyles && Object.keys(selectedBox.capturedStyles).length > 0 && (
                     <details style={{ marginBottom: '8px' }}>
                       <summary style={{ fontSize: '11px', color: 'var(--text-muted)', cursor: 'pointer' }}>Current Styles (before)</summary>

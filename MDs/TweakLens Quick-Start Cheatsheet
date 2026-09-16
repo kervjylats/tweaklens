@@ -115,8 +115,53 @@ You can uncheck "Include project rules" if you don't need it.
 
 ---
 
-## 6. Tips
+## 6. Device Wall
 
-- **Design at multiple viewports** — switch between Mobile / Tablet / Desktop to catch layout issues.
+See **all devices at once** — Mobile, Tablet, Desktop — side by side.
+
+| Button | What it does |
+| :--- | :--- |
+| **Single** | One device, full interactive control. |
+| **Wall** | All 7 devices live side by side, scrollable. |
+| **Fit / 1:1** | Toggle between "fit all in view" and "real pixel size". |
+
+### How to use the Wall
+
+1. Click **Wall** in the top-right.
+2. All devices load your app simultaneously at real pixel sizes.
+3. Switch to **Edit UI Tools** to annotate on any device — annotations are tagged with the device name.
+4. Export groups tasks under device headers (e.g. `### 📱 iPhone 14/15 (390×844)`).
+
+### Device presets
+
+| Device | Width × Height | DPR | Touch | Mode |
+| :--- | :--- | :--- | :--- | :--- |
+| 📱 iPhone SE | 375 × 667 | 2 | Yes | Mobile |
+| 📱 iPhone 14/15 | 390 × 844 | 3 | Yes | Mobile |
+| 📱 Pixel 7 | 412 × 915 | 2.6 | Yes | Mobile |
+| 📱 iPad (classic) | 768 × 1024 | 2 | Yes | Tablet |
+| 📱 iPad 10th | 820 × 1180 | 2 | Yes | Tablet |
+| 💻 Laptop | 1280 × 800 | 1 | No | Desktop |
+| 🖥️ Desktop HD | 1920 × 1080 | 1 | No | Desktop |
+
+Each device gets real Chrome DevTools Protocol emulation: device metrics, touch mode, User-Agent spoofing, and media features (hover:none, pointer:coarse on mobile). This means CSS `@media` queries fire correctly.
+
+### What it can't do (honest)
+
+TweakLens simulates **screen size and CSS breakpoints** — not a real device. It does NOT simulate:
+- Safari / Firefox engines (always Chromium)
+- iOS safe-area insets (notch, home bar = 0)
+- PWA standalone mode, install, push, offline
+- Font rendering differences
+- Native apps (only web)
+
+For the final 5%, test on real hardware.
+
+---
+
+## 7. Tips
+
+- **Design at multiple viewports** — switch between devices or use the Wall to see all at once.
 - **Source info is automatic** — if the app is React/Next.js, TweakLens reads the component source. If not, you'll get selectors only (still useful).
 - **Rules preamble protects you** — the AI won't hardcode colors or break your design system.
+- **Annotations are per-device** — an annotation made on Mobile is tagged `📱 iPhone 14/15`. The export groups tasks by device so the AI knows which viewport each change targets.

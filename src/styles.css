@@ -258,3 +258,50 @@ body, html, #root {
 
 .hint { color: var(--text-muted); font-size: 12px; line-height: 1.4; }
 .diffs-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+
+/* Device Wall */
+.wall-canvas {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  padding: 20px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: auto;
+}
+.wall-canvas.fit-zoom {
+  flex-wrap: wrap;
+  justify-content: center;
+  overflow: hidden;
+}
+.wall-device-wrapper {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.wall-device-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 4px 0 6px 0;
+  white-space: nowrap;
+}
+.wall-frame {
+  position: relative;
+  overflow: hidden;
+}
+
+/* Single mode label override */
+.lens-canvas > .device-frame > .wall-device-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  background: rgba(0,0,0,0.6);
+  padding: 2px 0;
+  border-radius: 8px 8px 0 0;
+}

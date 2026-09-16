@@ -24,9 +24,9 @@ The AI edits the *exact* element, not a guess.
 ## Tier C — Future Enhancements
 The "Figma/FlutterFlow-like" layer.
 
+- [x] **Responsive intent** — device presets encode real px, DPR, touch, UA; annotations tagged per-device
+- [x] **Multi-frame** — Wall view renders all devices simultaneously; annotate on any device
 - [ ] **Live preview** — apply tweaks in the running app before exporting
 - [ ] **Style diff** — before/after side-by-side in the sidebar
-- [ ] **Responsive intent** — capture which viewport you designed at, encode breakpoint rules
-- [ ] **Multi-frame** — annotate the same element at different viewports simultaneously
 - [ ] **Component reuse** — detect repeated patterns and suggest a shared component
 - [ ] **Undo/redo** — step back through annotation history
