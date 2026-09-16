@@ -54,11 +54,11 @@ export const INJECTED_INSPECTOR_CODE = `
     syncBox(currentSelected);
 
     // Get bounding rect
-    const r = el.getBoundingClientRect();
+    const r = currentSelected.getBoundingClientRect();
     const rect = { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) };
 
     // Computed styles snapshot
-    const comp = window.getComputedStyle(el);
+    const comp = window.getComputedStyle(currentSelected);
     const styles = {
       color: comp.color,
       backgroundColor: comp.backgroundColor,
@@ -84,9 +84,9 @@ export const INJECTED_INSPECTOR_CODE = `
 
     // React fiber _debugSource (file:line)
     let source = null;
-    const fiberKey = Object.keys(el).find(k => k.startsWith('__reactFiber$'));
+    const fiberKey = Object.keys(currentSelected).find(k => k.startsWith('__reactFiber$'));
     if (fiberKey) {
-      let fiber = el[fiberKey];
+      let fiber = currentSelected[fiberKey];
       for (let i = 0; i < 15 && fiber; i++) {
         if (fiber._debugSource && fiber._debugSource.fileName) {
           source = { file: fiber._debugSource.fileName, line: fiber._debugSource.lineNumber };
@@ -97,8 +97,8 @@ export const INJECTED_INSPECTOR_CODE = `
     }
 
     // Semantic tags
-    const dataTl = el.getAttribute('data-tl') || null;
-    const dataSrc = el.getAttribute('data-src') || null;
+    const dataTl = currentSelected.getAttribute('data-tl') || null;
+    const dataSrc = currentSelected.getAttribute('data-src') || null;
 
     const payload = {
       selector: currentSelector,

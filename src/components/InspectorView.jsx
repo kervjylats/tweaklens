@@ -25,7 +25,7 @@ export default function InspectorView() {
   const [framework, setFramework] = useState('flutter');
 
   // Element inspector
-  const [inspectorEnabled, setInspectorEnabled] = useState(true);
+  const inspectorActive = mode === 'edit' && picking;
   const [picking, setPicking] = useState(false);
   const [inspectedEl, setInspectedEl] = useState(null);
 
@@ -51,7 +51,7 @@ export default function InspectorView() {
     if (!wv) return;
     try {
       wv.executeJavaScript(INJECTED_INSPECTOR_CODE);
-      wv.executeJavaScript(`window.__TWEAKLENS_SET_ENABLED__(${inspectorEnabled})`);
+      wv.executeJavaScript(`window.__TWEAKLENS_SET_ENABLED__(${inspectorActive})`);
     } catch (_) { /* webview not ready */ }
   };
 
@@ -67,16 +67,16 @@ export default function InspectorView() {
       wv.removeEventListener('dom-ready', onReady);
       wv.removeEventListener('did-finish-load', onReady);
     };
-  }, [activeUrl, viewport]);
+  }, [activeUrl, viewport, inspectorActive]);
 
   // Toggle inspector flag on the guest
   useEffect(() => {
     const wv = webviewRef.current;
     if (!wv) return;
     try {
-      wv.executeJavaScript(`window.__TWEAKLENS_SET_ENABLED__(${inspectorEnabled})`);
+      wv.executeJavaScript(`window.__TWEAKLENS_SET_ENABLED__(${inspectorActive})`);
     } catch (_) {}
-  }, [inspectorEnabled]);
+  }, [inspectorActive]);
 
   // Listen for element selections via IPC bridge (NOT window.postMessage)
   useEffect(() => {
