@@ -48,7 +48,7 @@ export default function InspectorView() {
   // ----------------------------------------------------
   const injectInspector = () => {
     const wv = webviewRef.current;
-    if (!wv || wv.isLoading()) return;
+    if (!wv) return;
     try {
       wv.executeJavaScript(INJECTED_INSPECTOR_CODE);
       wv.executeJavaScript(`window.__TWEAKLENS_SET_ENABLED__(${inspectorEnabled})`);
@@ -59,10 +59,14 @@ export default function InspectorView() {
     const wv = webviewRef.current;
     if (!wv) return;
 
-    wv.addEventListener('did-finish-load', injectInspector);
-    injectInspector(); // inject immediately if already loaded
+    const onReady = () => injectInspector();
+    wv.addEventListener('dom-ready', onReady);
+    wv.addEventListener('did-finish-load', onReady);
 
-    return () => wv.removeEventListener('did-finish-load', injectInspector);
+    return () => {
+      wv.removeEventListener('dom-ready', onReady);
+      wv.removeEventListener('did-finish-load', onReady);
+    };
   }, [activeUrl, viewport]);
 
   // Toggle inspector flag on the guest
