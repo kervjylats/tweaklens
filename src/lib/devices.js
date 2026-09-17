@@ -4,11 +4,16 @@
  * a mobile flag, a User-Agent string, and optional media-feature overrides
  * (hover, pointer, colorScheme) that are applied via Chrome DevTools Protocol
  * Emulation commands.
+ *
+ * Categories map to the 5 responsive tiers used in CreatorBioTree:
+ * Small phone (0–374px), Medium phone (375–428px), Large phone (429–767px),
+ * Tablet (768–1023px), Desktop (1024px+).
  */
 
 const DEVICES = {
   'iphone-se': {
     label: '📱 iPhone SE',
+    category: 'Small phone',
     width: 375,
     height: 667,
     dpr: 2,
@@ -18,6 +23,7 @@ const DEVICES = {
   },
   'iphone-14': {
     label: '📱 iPhone 14/15',
+    category: 'Medium phone',
     width: 390,
     height: 844,
     dpr: 3,
@@ -27,6 +33,7 @@ const DEVICES = {
   },
   'pixel-7': {
     label: '📱 Pixel 7',
+    category: 'Medium phone',
     width: 412,
     height: 915,
     dpr: 2.625,
@@ -34,8 +41,19 @@ const DEVICES = {
     ua: 'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.113 Mobile Safari/537.36',
     media: { hover: 'none', pointer: 'coarse' }
   },
+  'iphone-15-pro-max': {
+    label: '📱 iPhone 15 Pro Max',
+    category: 'Large phone',
+    width: 430,
+    height: 932,
+    dpr: 3,
+    mobile: true,
+    ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+    media: { hover: 'none', pointer: 'coarse' }
+  },
   'ipad-classic': {
     label: '📱 iPad (classic)',
+    category: 'Tablet',
     width: 768,
     height: 1024,
     dpr: 2,
@@ -45,6 +63,7 @@ const DEVICES = {
   },
   'ipad-10th': {
     label: '📱 iPad 10th',
+    category: 'Tablet',
     width: 820,
     height: 1180,
     dpr: 2,
@@ -54,6 +73,7 @@ const DEVICES = {
   },
   'laptop': {
     label: '💻 Laptop',
+    category: 'Desktop',
     width: 1280,
     height: 800,
     dpr: 1,
@@ -63,6 +83,7 @@ const DEVICES = {
   },
   'desktop-hd': {
     label: '🖥️ Desktop HD',
+    category: 'Desktop',
     width: 1920,
     height: 1080,
     dpr: 1,

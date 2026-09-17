@@ -38,8 +38,9 @@ export default function InspectorView() {
   // Rules preamble toggle
   const [includeRules, setIncludeRules] = useState(true);
 
-  // Wall: refs for each device's webview
+  // Wall: refs for each device's webview + navigation sync
   const wallWebviewRefs = useRef({});
+  const wallSyncingRef = useRef(false);
 
   const webviewRef = useRef(null);
   const overlayRef = useRef(null);
@@ -382,6 +383,51 @@ export default function InspectorView() {
     : annotations;
 
   // ----------------------------------------------------
+  // WALL NAVIGATION SYNC — all devices follow the same URL
+  // ----------------------------------------------------
+  useEffect(() => {
+    if (viewMode !== 'wall') return;
+
+    // Navigate all wall webviews when activeUrl changes (e.g. Go button)
+    const wvs = Object.entries(wallWebviewRefs.current);
+    for (const [dk, wv] of wvs) {
+      try { wv.goto(activeUrl); } catch (_) {}
+    }
+
+    // Sync navigation: when one device navigates, update URL bar + sync others
+    const handlers = {};
+    for (const [dk, wv] of wvs) {
+      const handler = (e) => {
+        if (wallSyncingRef.current) return;
+        const url = e.url;
+        if (!url || url === activeUrl) return;
+        wallSyncingRef.current = true;
+        setActiveUrl(url);
+        setInputUrl(url);
+        // Sync other webviews
+        for (const [otherDk, otherWv] of Object.entries(wallWebviewRefs.current)) {
+          if (otherDk !== dk) {
+            try { otherWv.goto(url); } catch (_) {}
+          }
+        }
+        wallSyncingRef.current = false;
+      };
+      handlers[dk] = handler;
+      wv.addEventListener('did-navigate', handler);
+      wv.addEventListener('did-navigate-in-page', handler);
+    }
+
+    return () => {
+      for (const [dk, wv] of Object.entries(wallWebviewRefs.current)) {
+        if (handlers[dk]) {
+          wv.removeEventListener('did-navigate', handlers[dk]);
+          wv.removeEventListener('did-navigate-in-page', handlers[dk]);
+        }
+      }
+    };
+  }, [viewMode, activeUrl]);
+
+  // ----------------------------------------------------
   // WALL VIEW — renders all devices as live webviews
   // ----------------------------------------------------
   if (viewMode === 'wall') {
@@ -506,12 +552,13 @@ export default function InspectorView() {
                   }}
                 >
                   <div className="wall-device-label">
-                    {dev.label} ({dev.width}×{dev.height})
+                    {dev.label}
+                    <span className="device-category">{dev.category} · {dev.width}px</span>
                   </div>
                   <div className="device-frame wall-frame" style={{ width: dev.width, height: dev.height }}>
                     <webview
                       ref={(el) => { if (el) wallWebviewRefs.current[dk] = el; }}
-                      src={activeUrl}
+                      src="about:blank"
                       className="guest-webview"
                       preload={window.tweaklens?.webviewPreload}
                       style={{ width: dev.width, height: dev.height }}
@@ -900,7 +947,8 @@ export default function InspectorView() {
           >
             {/* Device label */}
             <div className="wall-device-label">
-              {device.label} ({device.width}×{device.height})
+              {device.label}
+              <span className="device-category">{device.category} · {device.width}px</span>
             </div>
 
             {/* Embedded Live App */}
