@@ -106,6 +106,28 @@ export default function InspectorView() {
     };
   }, [activeUrl, deviceKey, viewMode, inspectorActive, injectInspector, applyDeviceEmulation]);
 
+  // Single mode: track in-app navigation so device switches preserve the current page
+  useEffect(() => {
+    if (viewMode !== 'single') return;
+    const wv = webviewRef.current;
+    if (!wv) return;
+
+    const onNavigate = (e) => {
+      const url = e.url;
+      if (!url) return;
+      setActiveUrl(url);
+      setInputUrl(url);
+    };
+
+    wv.addEventListener('did-navigate', onNavigate);
+    wv.addEventListener('did-navigate-in-page', onNavigate);
+
+    return () => {
+      wv.removeEventListener('did-navigate', onNavigate);
+      wv.removeEventListener('did-navigate-in-page', onNavigate);
+    };
+  }, [viewMode, deviceKey]);
+
   // Toggle inspector flag on the guest
   useEffect(() => {
     const wv = viewMode === 'single' ? webviewRef.current : null;
